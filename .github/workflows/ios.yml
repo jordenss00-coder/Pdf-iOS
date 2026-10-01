@@ -60,7 +60,7 @@ jobs:
             -derivedDataPath build/DerivedData -parallel-testing-enabled NO -test-timeouts-enabled YES \
             -resultBundlePath build/Tests.xcresult > build/test.log 2>&1
           status=$?
-          grep -E '^DIAG|error:|Test Case .*(passed|failed)|XCTAssert|\*\* TEST' build/test.log | head -150
+          grep -E 'error:|Test Case .*(passed|failed)|XCTAssert|\*\* TEST' build/test.log | head -150
           exit $status
       - name: Screenshots
         if: always()

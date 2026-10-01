@@ -146,12 +146,14 @@ struct EditorView: View {
                     Image(systemName: "arrow.uturn.backward").font(.title3)
                 }
                 .disabled(!model.canUndo)
+                .accessibilityLabel("Geri al")
                 Button(role: .destructive) {
                     model.deleteSelected()
                 } label: {
                     Image(systemName: "trash").font(.title3)
                 }
                 .disabled(model.selected == nil)
+                .accessibilityLabel("Seçili öğeyi sil")
                 .padding(.trailing, 14)
             }
         }

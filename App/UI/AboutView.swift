@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct AboutView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var confirming = false
+    @State private var cleared = false
+
     private var version: String {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "?"
@@ -31,6 +35,19 @@ struct AboutView: View {
                 Label("Belgeler yalnızca bu cihazda işlenir; hiçbir sunucuya gönderilmez.", systemImage: "lock.shield")
                 Label("Hesap, giriş ya da internet bağlantısı gerekmez.", systemImage: "wifi.slash")
                 Label("Sonuçlar Dosyalar › iPhone'umda › PDF Atölye klasöründe durur; istediğin zaman silebilirsin.", systemImage: "folder")
+                Button(role: .destructive) {
+                    confirming = true
+                } label: {
+                    Label(cleared ? "Dosyalar silindi" : "Dosyalarımı sil", systemImage: cleared ? "checkmark" : "trash")
+                }
+                .confirmationDialog("Tüm sonuçlar ve geçici dosyalar silinsin mi?", isPresented: $confirming, titleVisibility: .visible) {
+                    Button("Tümünü sil", role: .destructive) {
+                        model.deleteEverything()
+                        cleared = true
+                    }
+                } message: {
+                    Text("Bu işlem geri alınamaz. Kaydettiğin ya da paylaştığın kopyalar etkilenmez.")
+                }
             }
             Section("Açık kaynak bileşenler") {
                 NavigationLink("PDFium (Google, BSD/Apache)") {

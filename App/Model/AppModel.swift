@@ -69,4 +69,14 @@ final class AppModel: ObservableObject {
         try? FileManager.default.removeItem(at: url)
         refreshRecents()
     }
+
+    /// Masaüstündeki "Dosyalarımı sil": tüm sonuçları ve geçici dosyaları siler.
+    func deleteEverything() {
+        let fm = FileManager.default
+        for item in (try? fm.contentsOfDirectory(at: Storage.results, includingPropertiesForKeys: nil)) ?? [] {
+            try? fm.removeItem(at: item)
+        }
+        try? fm.removeItem(at: Storage.temporary)
+        refreshRecents()
+    }
 }

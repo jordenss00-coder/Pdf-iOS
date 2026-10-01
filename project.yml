@@ -1,6 +1,7 @@
 name: PDFAtolye
 options:
   bundleIdPrefix: com.jordenss00
+  developmentLanguage: tr
   deploymentTarget:
     iOS: "17.0"
 settings:

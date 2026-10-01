@@ -375,7 +375,7 @@ final class EngineTests: XCTestCase {
             context.beginPage()
             UIColor.red.setFill()
             context.fill(CGRect(x: 20, y: 20, width: 200, height: 100))
-            NSAttributedString(string: "Renkli yazı", attributes: [.font: UIFont.boldSystemFont(ofSize: 30), .foregroundColor: UIColor.blue])
+            NSAttributedString(string: "Renkli yazı şık", attributes: [.font: UIFont.boldSystemFont(ofSize: 30), .foregroundColor: UIColor.blue])
                 .draw(at: CGPoint(x: 20, y: 160))
         }
         let result = try await run("grayscale", [try input(data)])
@@ -388,7 +388,7 @@ final class EngineTests: XCTestCase {
             if max(r, g, b) - min(r, g, b) > 24 { colorful += 1 }
         }
         XCTAssertEqual(colorful, 0)
-        XCTAssertTrue(try text(result.files[0]).contains("Renkli yazı"))
+        XCTAssertTrue(try text(result.files[0]).contains("Renkli yazı şık"))
     }
 
     func testRedactRemovesText() async throws {
@@ -618,32 +618,24 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(stampedText.trimmingCharacters(in: .whitespacesAndNewlines), original.trimmingCharacters(in: .whitespacesAndNewlines), "katman")
     }
 
-    func testDiagnoseTurkishRedaction() throws {
+    func testRegeneratedPagesKeepTurkishText() throws {
+        // CoreGraphics "ş" için aynı yazı tipinin ikinci bir alt kümesini açar; PDFium sayfayı yeniden yazarken alt küme
+        // etiketini atıp ikisini tek kaynağa eşlerse "ş" bozulur (FontNames bu adları benzersizleştirir).
         let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { context in
             context.beginPage()
             NSAttributedString(string: "Müşteri: Ayşe Yılmaz", attributes: [.font: UIFont.systemFont(ofSize: 14)]).draw(at: CGPoint(x: 50, y: 60))
         }
+        let fonts = String(decoding: data, as: UTF8.self).matches(of: #/\/BaseFont\s*\/([^\s\/\[\]<>()]+)/#).map { String($0.1) }
         let document = try PDFiumDocument(data: data)
-        let line = try document.text(page: 0).lines.first?.text ?? "-"
-        print("DIAG|pdfium-line|\(line)|\(line.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " "))")
         try document.withPage(0) { page in
             let chars = TextSurgery.characters(page)
-            let objects = Set(chars.compactMap { $0.object.map { Int(bitPattern: $0) } })
-            print("DIAG|chars|\(chars.count)|objects \(objects.count)|\(chars.map { "\($0.scalar.value):\($0.generated ? "g" : "r")" }.joined(separator: ","))")
             var plan = TextSurgery.Plan()
             for char in chars where "Yılmaz".unicodeScalars.contains(char.scalar) && char.origin.x > 120 { plan.remove.insert(char.index) }
-            let surgery = TextSurgery.apply(plan, chars: chars, page: page, document: document.handle)
-            print("DIAG|surgery|removed \(surgery.removed)|nested \(surgery.nested)|fallbacks \(surgery.fallbacks.map(\.text))")
+            _ = TextSurgery.apply(plan, chars: chars, page: page, document: document.handle)
         }
-        let rewritten = PDFDocument(data: try document.save())?.string ?? "-"
-        print("DIAG|after-surgery|\(rewritten)|\(rewritten.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " "))")
-        let blank = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { $0.beginPage() }
-        let overlay = try PDFiumDocument(data: blank)
-        try overlay.stamp(pages: [0]) { _, _, context in
-            TextDrawing.draw("Müşteri: Ayşe", baseline: CGPoint(x: 50, y: 100), rotation: 0, font: Fonts.font("Helvetica", size: 14), color: .black, in: context)
-        }
-        let overlayText = PDFDocument(data: try overlay.save())?.string ?? "-"
-        print("DIAG|overlay|\(overlayText)|\(overlayText.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " "))")
+        let rewritten = PDFDocument(data: try document.save())?.string ?? ""
+        XCTAssertTrue(rewritten.contains("Müşteri: Ayşe"), "\(rewritten) | yazı tipleri: \(fonts)")
+        XCTAssertFalse(rewritten.contains("Yılmaz"), rewritten)
     }
 
     // MARK: ZIP

@@ -91,7 +91,7 @@ final class PDFiumDocument {
     private let source: NSData?
 
     init(data: Data, password: String? = nil) throws {
-        let bytes = NSData(data: data)
+        let bytes = NSData(data: FontNames.unique(data))
         let document: FPDF_DOCUMENT? = PDFium.sync {
             if let password {
                 return FPDF_LoadMemDocument(bytes.bytes, Int32(bytes.length), password)
@@ -323,6 +323,121 @@ final class PDFiumDocument {
             }
             flush()
             return PageText(size: geometry.visualSize, lines: lines)
+        }
+    }
+}
+
+/// PDFium sayfa içeriğini yeniden yazarken yazı tiplerini (alt küme etiketi atılmış BaseFont, tür) çiftiyle eşler.
+/// Aynı yazı tipinin iki alt kümesi (ör. CoreGraphics'in "ş" gibi karakterler için açtığı ikinci TrueType alt kümesi)
+/// böylece tek kaynağa düşer ve yeniden yazılan sayfada metin bozulur. Yüklemeden önce bu adlar aynı uzunlukta
+/// benzersizleştirilir; nesne konumları değişmediği için xref geçerli kalır.
+enum FontNames {
+    private static let whitespace: Set<UInt8> = [0x00, 0x09, 0x0A, 0x0C, 0x0D, 0x20]
+    private static let delimiters: Set<UInt8> = whitespace.union(Array("()<>[]{}/%".utf8))
+    private static let alphabet = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".utf8)
+
+    private struct Font {
+        let object: Int
+        let name: [UInt8]
+        let tagged: Bool
+        var ranges: [Range<Int>]
+    }
+
+    static func unique(_ data: Data) -> Data {
+        let marker = Data("/BaseFont".utf8)
+        var fonts: [String: [Font]] = [:]
+        var names = Set<[UInt8]>()
+        var cursor = data.startIndex
+        while let found = data.range(of: marker, in: cursor..<data.endIndex) {
+            cursor = found.upperBound
+            guard let range = Self.name(after: found.upperBound, limit: data.endIndex, in: data),
+                  let owner = Self.object(around: found.lowerBound, in: data),
+                  let kind = Self.type(in: owner.body, of: data) else { continue }
+            let full = [UInt8](data[range])
+            let tagged = full.count > 7 && full[6] == 0x2B
+            let base = Array(tagged ? full[7...] : full[...])
+            names.insert(base)
+            let key = String(decoding: base, as: UTF8.self) + "|" + kind
+            if let index = fonts[key]?.firstIndex(where: { $0.object == owner.number }) {
+                fonts[key]![index].ranges.append(range)
+            } else {
+                fonts[key, default: []].append(Font(object: owner.number, name: full, tagged: tagged, ranges: [range]))
+            }
+        }
+        var output = data
+        var changed = false
+        for group in fonts.values where group.count > 1 {
+            // Gömülü alt kümelerde ad yalnızca etikettir; değiştirmek görünümü etkilemez.
+            for font in group.dropFirst() where font.tagged {
+                var base = Array(font.name[7...])
+                guard let last = base.indices.last else { continue }
+                var unique = false
+                for letter in alphabet {
+                    base[last] = letter
+                    if !names.contains(base) {
+                        unique = true
+                        break
+                    }
+                }
+                guard unique else { continue }
+                names.insert(base)
+                let renamed = Array(font.name[..<7]) + base
+                for range in font.ranges { output.replaceSubrange(range, with: renamed) }
+                changed = true
+            }
+        }
+        return changed ? output : data
+    }
+
+    /// `/Ad` biçimindeki adın bayt aralığı (baştaki boşluklar atlanır).
+    private static func name(after index: Int, limit: Int, in data: Data) -> Range<Int>? {
+        var start = index
+        while start < limit, whitespace.contains(data[start]) { start += 1 }
+        guard start < limit, data[start] == 0x2F else { return nil }
+        start += 1
+        var end = start
+        while end < limit, !delimiters.contains(data[end]) { end += 1 }
+        return end > start ? start..<end : nil
+    }
+
+    /// Konumu içeren dolaylı nesnenin numarası ve gövdesi ("N G obj" … "endobj").
+    private static func object(around index: Int, in data: Data) -> (number: Int, body: Range<Int>)? {
+        let lower = max(data.startIndex, index - 4096)
+        guard let obj = data.range(of: Data("obj".utf8), options: .backwards, in: lower..<index) else { return nil }
+        if obj.lowerBound - data.startIndex >= 3, data[(obj.lowerBound - 3)..<obj.lowerBound].elementsEqual("end".utf8) {
+            return nil
+        }
+        var i = obj.lowerBound - 1
+        func skip() {
+            while i >= data.startIndex, whitespace.contains(data[i]) { i -= 1 }
+        }
+        func digits() -> Int? {
+            var value = 0, scale = 1, count = 0
+            while i >= data.startIndex, data[i] >= 0x30, data[i] <= 0x39, count < 10 {
+                value += Int(data[i] - 0x30) * scale
+                scale *= 10
+                count += 1
+                i -= 1
+            }
+            return count > 0 ? value : nil
+        }
+        skip()
+        guard digits() != nil else { return nil }
+        skip()
+        guard let number = digits() else { return nil }
+        let upper = min(data.endIndex, index + 4096)
+        let end = data.range(of: Data("endobj".utf8), in: index..<upper)?.lowerBound ?? upper
+        return (number, obj.upperBound..<end)
+    }
+
+    /// PDFium'un yazı tipi eşlemesinde kullandığı tür; yalnızca etiketi atılan basit yazı tipleri.
+    private static func type(in body: Range<Int>, of data: Data) -> String? {
+        guard let found = data.range(of: Data("/Subtype".utf8), in: body),
+              let range = name(after: found.upperBound, limit: body.upperBound, in: data) else { return nil }
+        switch String(decoding: data[range], as: UTF8.self) {
+        case "Type1", "MMType1": return "Type1"
+        case "TrueType": return "TrueType"
+        default: return nil
         }
     }
 }

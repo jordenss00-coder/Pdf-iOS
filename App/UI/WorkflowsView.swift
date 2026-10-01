@@ -86,6 +86,7 @@ struct WorkflowsView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(busy)
+                        .accessibilityLabel("\(recipe.name) akışını çalıştır")
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { editing = recipe }

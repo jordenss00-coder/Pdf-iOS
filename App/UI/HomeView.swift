@@ -40,6 +40,7 @@ struct HomeView: View {
                 } label: {
                     Image(systemName: "info.circle")
                 }
+                .accessibilityLabel("Hakkında ve gizlilik")
             }
         }
         .quickLookPreview($preview, in: model.recents)
