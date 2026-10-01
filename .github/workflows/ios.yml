@@ -1,0 +1,78 @@
+name: iOS
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  spike:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          sw_vers
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Fetch PDFium
+        run: ./scripts/fetch-pdfium.sh
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build for device (unsigned)
+        run: |
+          set +e
+          mkdir -p build
+          xcodebuild build -project PDFAtolye.xcodeproj -scheme PDFAtolye -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO > build/device.log 2>&1
+          status=$?
+          grep -E 'error:|warning: .*PDFium|\*\* BUILD' build/device.log
+          exit $status
+      - name: Run spike tests on simulator
+        run: |
+          set +e
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          best = None
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              if "iOS-" not in runtime:
+                  continue
+              version = tuple(int(p) for p in runtime.rsplit("iOS-", 1)[1].split("-"))
+              for device in devices:
+                  if device["name"].startswith("iPhone") and (best is None or version > best[0]):
+                      best = (version, device["udid"], device["name"])
+          print(best[1])
+          print("Simulator:", best[2], ".".join(map(str, best[0])), file=sys.stderr)
+          ')
+          xcodebuild test -project PDFAtolye.xcodeproj -scheme PDFAtolye -destination "id=$udid" \
+            -parallel-testing-enabled NO -test-timeouts-enabled YES \
+            -resultBundlePath build/Spike.xcresult > build/test.log 2>&1
+          status=$?
+          grep -E '^SPIKE\||error:|Test Case .*(passed|failed)|\*\* TEST' build/test.log
+          exit $status
+      - name: Spike report
+        if: always()
+        run: |
+          grep -h '^SPIKE|' build/test.log > build/spike-report.txt || true
+          {
+            echo '## iOS teknik deneme'
+            echo
+            echo '| Deneme | Sonuç | Ayrıntı |'
+            echo '|---|---|---|'
+            awk -F'|' '{ detail = $4; for (i = 5; i <= NF; i++) detail = detail "/" $i; print "| " $2 " | " $3 " | " substr(detail, 1, 300) " |" }' build/spike-report.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-spike
+          path: |
+            build/*.log
+            build/spike-report.txt
+            Vendor/PDFium-licenses
+          retention-days: 14
