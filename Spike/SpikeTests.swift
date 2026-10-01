@@ -277,8 +277,14 @@ final class SpikeTests: XCTestCase {
     }
 
     func test04_PDFKitCompression() throws {
-        let doc = PDFDocument()
-        doc.insert(PDFPage(image: Sample.noisyImage())!, at: 0)
+        // Taranmış belge gibi: A4 sayfada yaklaşık 290 dpi görsel.
+        let image = Sample.noisyImage()
+        let a4 = CGRect(x: 0, y: 0, width: 595, height: 842)
+        let source = UIGraphicsPDFRenderer(bounds: a4).pdfData { context in
+            context.beginPage()
+            image.draw(in: a4)
+        }
+        let doc = PDFDocument(data: source)!
         func size(_ options: [PDFDocumentWriteOption: Any]) -> Int {
             let url = temp(UUID().uuidString + ".pdf")
             guard doc.write(to: url, withOptions: options) else { return -1 }
@@ -289,7 +295,7 @@ final class SpikeTests: XCTestCase {
         let screen = size([.optimizeImagesForScreenOption: true])
         let both = size([.saveImagesAsJPEGOption: true, .optimizeImagesForScreenOption: true])
         report("pdfkit-sikistirma", both > 0 && both < plain ? "OK" : "NO",
-               "normal=\(kb(plain)) jpeg=\(kb(jpeg)) ekran=\(kb(screen)) ikisi=\(kb(both))")
+               "kaynak=\(kb(source.count)) normal=\(kb(plain)) jpeg=\(kb(jpeg)) ekran=\(kb(screen)) ikisi=\(kb(both))")
     }
 
     func test05_PDFKitFlatten() throws {
