@@ -41,6 +41,15 @@ struct PDFIncremental {
         return PDFIncremental.dictionary(in: text, from: range.upperBound)
     }
 
+    /// N numaralı nesnenin "obj" ile "endobj" arasındaki ham içeriği (ör. dolaylı diziler için).
+    func objectBody(of number: Int) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: "(?:^|[\\r\\n\\s])\(number)\\s+0\\s+obj"),
+              let match = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).last,
+              let range = Range(match.range, in: text),
+              let end = text.range(of: "endobj", range: range.upperBound..<text.endIndex) else { return nil }
+        return String(text[range.upperBound..<end.lowerBound])
+    }
+
     /// Yeni nesne ekler ve numarasını döndürür.
     mutating func add(_ body: Data) -> Int {
         let number = next

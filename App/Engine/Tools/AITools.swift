@@ -24,7 +24,17 @@ enum AITools {
             do {
                 return try await session.respond(to: instructions + "\n\n" + prompt).content
             } catch {
-                throw ToolError("Yapay zekâ yanıt veremedi: \(error.localizedDescription)")
+                let detail = String(describing: error)
+                if detail.contains("assetsUnavailable") || detail.contains("error -1") {
+                    throw ToolError("Apple Intelligence modeli bu cihazda henüz hazır değil. İndirmenin bitmesini bekleyip tekrar dene.")
+                }
+                if detail.contains("unsupportedLanguageOrLocale") {
+                    throw ToolError("Apple Intelligence bu dili henüz desteklemiyor. Başka bir dil seçmeyi dene.")
+                }
+                if detail.contains("guardrailViolation") || detail.contains("refusal") {
+                    throw ToolError("Apple Intelligence bu içerik için yanıt vermeyi reddetti.")
+                }
+                throw ToolError("Apple Intelligence yanıt veremedi: \(error.localizedDescription)")
             }
         }
         #endif

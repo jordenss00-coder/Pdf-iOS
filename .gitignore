@@ -14,3 +14,5 @@ xcuserdata/
 *.key
 *.mobileprovision
 cert_key*
+# Yalnızca testlerde kullanılan, parolası belli sahte sertifika.
+!Fixtures/test-sertifika.p12

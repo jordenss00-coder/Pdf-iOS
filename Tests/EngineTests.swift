@@ -1,4 +1,6 @@
+import CryptoKit
 import PDFKit
+import PDFium
 import UIKit
 import XCTest
 @testable import PDFAtolye
@@ -564,6 +566,53 @@ final class EngineTests: XCTestCase {
             }
             throw error
         }
+    }
+
+    func testDigitalSignature() async throws {
+        let certificate = try XCTUnwrap(Bundle(for: EngineTests.self).url(forResource: "test-sertifika", withExtension: "p12"))
+        let certificateFile = try InputFile.importing(certificate, as: .certificate)
+        let source = try input(Self.samplePDF(pages: 2))
+        let result = try await run("sign", [source], ["cert_on": .bool(true), "cert_file": .file(certificateFile.url),
+                                                      "cert_password": .string("test1234"), "cert_reason": .string("Onaylıyorum"),
+                                                      "cert_location": .string("İstanbul")])
+        let data = try Data(contentsOf: result.files[0])
+        let raw = String(data: data, encoding: .isoLatin1) ?? ""
+        XCTAssertTrue(raw.contains("/SubFilter /adbe.pkcs7.detached"))
+        XCTAssertTrue(raw.contains("/SigFlags 3"))
+        let numbers = try XCTUnwrap(raw.range(of: #"/ByteRange \[0 (\d+) (\d+) (\d+)\]"#, options: .regularExpression))
+        let parts = raw[numbers].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+        XCTAssertEqual(parts.count, 4)
+        XCTAssertEqual(parts[2] + parts[3], data.count, "ByteRange tüm dosyayı kapsamalı")
+        var hasher = SHA256()
+        hasher.update(data: data[0..<parts[1]])
+        hasher.update(data: data[parts[2]..<(parts[2] + parts[3])])
+        let digest = hasher.finalize().map { String(format: "%02X", $0) }.joined()
+        XCTAssertTrue(raw.contains(digest), "İmzadaki özet belgeyle eşleşmeli")
+        XCTAssertEqual(PDFDocument(data: data)?.pageCount, 2)
+        do {
+            _ = try await run("sign", [source], ["cert_on": .bool(true), "cert_file": .file(certificateFile.url),
+                                                 "cert_password": .string("yanlis")])
+            XCTFail("Yanlış parola kabul edilmemeli")
+        } catch let error as ToolError {
+            XCTAssertTrue(error.message.contains("parola"), error.message)
+        }
+    }
+
+    func testPDFiumKeepsTurkishTextWhenRegenerating() throws {
+        let data = Self.samplePDF(pages: 1)
+        let original = PDFDocument(data: data)?.string ?? ""
+        let saved = try PDFiumDocument(data: data).save()
+        let savedText = PDFDocument(data: saved)?.string ?? ""
+        let document = try PDFiumDocument(data: data)
+        _ = try document.withPage(0) { FPDFPage_GenerateContent($0) }
+        let regenerated = PDFDocument(data: try document.save())?.string ?? ""
+        let stamped = try PDFiumDocument(data: data)
+        try stamped.stamp(pages: [0]) { _, _, _ in }
+        let stampedText = PDFDocument(data: try stamped.save())?.string ?? ""
+        XCTAssertTrue(original.contains("ğüşıöç"), "özgün: \(original)")
+        XCTAssertEqual(savedText, original, "yalnızca kaydetme")
+        XCTAssertEqual(regenerated, original, "GenerateContent")
+        XCTAssertEqual(stampedText.trimmingCharacters(in: .whitespacesAndNewlines), original.trimmingCharacters(in: .whitespacesAndNewlines), "katman")
     }
 
     // MARK: ZIP

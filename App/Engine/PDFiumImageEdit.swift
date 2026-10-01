@@ -62,6 +62,15 @@ enum PDFiumImageEdit {
         var nested = 0
         var changed = 0
         var failed = 0
+        var lowResolution = 0
+        var noBitmap = 0
+        var transparent = 0
+        var notSmaller = 0
+
+        var summary: String {
+            "\(found) görsel (\(nested) iç içe): \(changed) küçültüldü, \(lowResolution) zaten düşük çözünürlüklü, "
+                + "\(notSmaller) küçülmedi, \(transparent) saydam, \(noBitmap) okunamadı, \(failed) yazılamadı"
+        }
     }
 
     /// Sayfadaki yüksek çözünürlüklü görselleri küçültüp JPEG olarak yeniden kodlar.
@@ -83,17 +92,33 @@ enum PDFiumImageEdit {
                     var left: Float = 0, bottom: Float = 0, right: Float = 0, top: Float = 0
                     guard FPDFPageObj_GetBounds(object, &left, &bottom, &right, &top) != 0, right > left, top > bottom else { continue }
                     let dpi = Double(pixelWidth) / (Double(right - left) / 72)
-                    guard dpi > level.threshold || gray else { continue }
-                    guard let bitmap = FPDFImageObj_GetBitmap(object) else { continue }
+                    guard dpi > level.threshold || gray else {
+                        report.lowResolution += 1
+                        continue
+                    }
+                    guard let bitmap = FPDFImageObj_GetBitmap(object) else {
+                        report.noBitmap += 1
+                        continue
+                    }
                     defer { FPDFBitmap_Destroy(bitmap) }
                     // Saydamlığı olan (BGRA) görseller JPEG'e çevrilmez.
-                    guard FPDFBitmap_GetFormat(bitmap) != 4, let image = PDFiumImages.cgImage(bitmap) else { continue }
+                    guard FPDFBitmap_GetFormat(bitmap) != 4 else {
+                        report.transparent += 1
+                        continue
+                    }
+                    guard let image = PDFiumImages.cgImage(bitmap) else {
+                        report.noBitmap += 1
+                        continue
+                    }
                     let scale = dpi > level.threshold ? min(1, level.target / dpi) : 1
                     let width = Int((Double(pixelWidth) * scale).rounded()), height = Int((Double(pixelHeight) * scale).rounded())
                     guard let smaller = resized(image, width: width, height: height, gray: gray),
                           let jpeg = try? ImageCoding.encode(smaller, as: .jpeg, quality: level.quality) else { continue }
                     let original = FPDFImageObj_GetImageDataRaw(object, nil, 0)
-                    guard UInt(jpeg.count) < original || gray else { continue }
+                    guard UInt(jpeg.count) < original || gray else {
+                        report.notSmaller += 1
+                        continue
+                    }
                     if replace(object, on: page, jpeg: jpeg) { count += 1 } else { report.failed += 1 }
                 }
                 if count > 0 { _ = FPDFPage_GenerateContent(page) }

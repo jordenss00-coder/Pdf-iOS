@@ -64,6 +64,7 @@ jobs:
           exit $status
       - name: Screenshots
         if: always()
+        timeout-minutes: 6
         run: |
           app=build/DerivedData/Build/Products/Debug-iphonesimulator/PDFAtolye.app
           [ -d "$app" ] || exit 0
@@ -86,6 +87,7 @@ jobs:
           xcrun simctl ui "$SIM" appearance dark
           shot 05-home-dark
           shot 06-compress-dark -demo compress
+          xcrun simctl shutdown "$SIM" >/dev/null 2>&1 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
