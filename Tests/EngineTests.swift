@@ -143,13 +143,16 @@ final class EngineTests: XCTestCase {
         note.contents = "Not"
         document.page(at: 0)?.addAnnotation(note)
         document.page(at: 1)?.rotation = 90
-        let source = try input(try XCTUnwrap(document.dataRepresentation()))
+        let sourceData = try XCTUnwrap(document.dataRepresentation())
+        let annotations = PDFDocument(data: sourceData)?.page(at: 0)?.annotations.count ?? 0
+        XCTAssertGreaterThan(annotations, 0)
+        let source = try input(sourceData)
         let result = try await run("watermark", [source], ["text": .string("GİZLİ BELGE"), "position": .string("tile")])
         let output = try pdf(result.files[0])
         XCTAssertEqual(output.pageCount, 2)
         XCTAssertTrue(output.page(at: 0)?.string?.contains("GİZLİ BELGE") == true, output.page(at: 0)?.string ?? "")
         XCTAssertTrue(output.page(at: 1)?.string?.contains("GİZLİ BELGE") == true)
-        XCTAssertEqual(output.page(at: 0)?.annotations.count, 1)
+        XCTAssertEqual(output.page(at: 0)?.annotations.count, annotations, "notlar korunmalı")
         XCTAssertEqual(output.page(at: 1)?.rotation, 90)
 
         let png = UIGraphicsImageRenderer(size: CGSize(width: 60, height: 30)).pngData { context in
@@ -334,6 +337,138 @@ final class EngineTests: XCTestCase {
         let document = try pdf(result.files[0])
         XCTAssertEqual(document.pageCount, 1)
         XCTAssertEqual(document.page(at: 0)?.bounds(for: .mediaBox).width ?? 0, 595, accuracy: 1)
+    }
+
+    // MARK: İyileştirme, karartma, bul-değiştir
+
+    func testCompressShrinksScans() async throws {
+        let size = CGSize(width: 2400, height: 3200)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let photo = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            for y in stride(from: 0, to: 3200, by: 16) {
+                for x in stride(from: 0, to: 2400, by: 16) {
+                    UIColor(hue: CGFloat((x + y) % 360) / 360, saturation: 0.6, brightness: CGFloat.random(in: 0.5...1), alpha: 1).setFill()
+                    context.fill(CGRect(x: x, y: y, width: 16, height: 16))
+                }
+            }
+        }
+        let jpeg = try XCTUnwrap(photo.jpegData(compressionQuality: 0.95))
+        let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { context in
+            context.beginPage()
+            UIImage(data: jpeg)?.draw(in: CGRect(x: 0, y: 0, width: 595, height: 842))
+        }
+        let source = try input(data)
+        let result = try await run("compress", [source], ["level": .string("recommended")])
+        let after = result.files[0].fileSize
+        XCTAssertLessThan(after, Int64(data.count) / 2, "önce \(data.count) sonra \(after)")
+        XCTAssertEqual(try pdf(result.files[0]).pageCount, 1)
+    }
+
+    func testGrayscaleRemovesColor() async throws {
+        let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 300, height: 300)).pdfData { context in
+            context.beginPage()
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 20, y: 20, width: 200, height: 100))
+            NSAttributedString(string: "Renkli yazı", attributes: [.font: UIFont.boldSystemFont(ofSize: 30), .foregroundColor: UIColor.blue])
+                .draw(at: CGPoint(x: 20, y: 160))
+        }
+        let result = try await run("grayscale", [try input(data)])
+        let image = try PDFiumDocument(data: Data(contentsOf: result.files[0])).render(page: 0, scale: 0.5)
+        let pixels = try XCTUnwrap(image.dataProvider?.data)
+        let bytes = try XCTUnwrap(CFDataGetBytePtr(pixels))
+        var colorful = 0
+        for i in stride(from: 0, to: CFDataGetLength(pixels) - 3, by: 4) {
+            let b = Int(bytes[i]), g = Int(bytes[i + 1]), r = Int(bytes[i + 2])
+            if max(r, g, b) - min(r, g, b) > 24 { colorful += 1 }
+        }
+        XCTAssertEqual(colorful, 0)
+        XCTAssertTrue(try text(result.files[0]).contains("Renkli yazı"))
+    }
+
+    func testRedactRemovesText() async throws {
+        let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { context in
+            context.beginPage()
+            NSAttributedString(string: "Müşteri: Ayşe Yılmaz", attributes: [.font: UIFont.systemFont(ofSize: 14)]).draw(at: CGPoint(x: 50, y: 60))
+            NSAttributedString(string: "IBAN: TR33 0006 1005 1978 6457 8413 26", attributes: [.font: UIFont.systemFont(ofSize: 14)]).draw(at: CGPoint(x: 50, y: 90))
+            NSAttributedString(string: "TC: 12345678901 ve telefon", attributes: [.font: UIFont.systemFont(ofSize: 14)]).draw(at: CGPoint(x: 50, y: 120))
+        }
+        let result = try await run("redact", [try input(data)], ["presets": .list(["iban", "tckn"]), "terms_text": .string("Yılmaz")])
+        let remaining = try text(result.files[0])
+        XCTAssertFalse(remaining.contains("0006"), remaining)
+        XCTAssertFalse(remaining.contains("12345678901"), remaining)
+        XCTAssertFalse(remaining.contains("Yılmaz"), remaining)
+        XCTAssertTrue(remaining.contains("Müşteri"), remaining)
+        XCTAssertTrue(remaining.contains("telefon"), remaining)
+    }
+
+    func testFindReplaceRewritesText() async throws {
+        let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { context in
+            context.beginPage()
+            NSAttributedString(string: "Teslim tarihi 15 Ocak, sorumlu Ahmet Bey.", attributes: [.font: UIFont.systemFont(ofSize: 16)])
+                .draw(at: CGPoint(x: 50, y: 80))
+        }
+        let result = try await run("find_replace", [try input(data)], ["pairs": .pairs([ReplacePair(find: "15 Ocak", replace: "28 Şubat"),
+                                                                                       ReplacePair(find: "ahmet", replace: "Ayşe")])])
+        let changed = try text(result.files[0])
+        XCTAssertTrue(changed.contains("28 Şubat"), changed)
+        XCTAssertTrue(changed.contains("Ayşe"), changed)
+        XCTAssertFalse(changed.contains("15 Ocak"), changed)
+        XCTAssertFalse(changed.contains("Ahmet"), changed)
+        XCTAssertTrue(changed.contains("Teslim") && changed.contains("Bey"), changed)
+        XCTAssertEqual(result.notes.first, "2 yerde değiştirildi.")
+    }
+
+    // MARK: PDF'ten Office
+
+    func reportPDF() -> Data {
+        UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { context in
+            context.beginPage()
+            NSAttributedString(string: "Satış Raporu", attributes: [.font: UIFont.boldSystemFont(ofSize: 28)]).draw(at: CGPoint(x: 50, y: 50))
+            NSAttributedString(string: "Bu çeyrekte satışlar beklenenden yüksek gerçekleşti ve stoklar",
+                               attributes: [.font: UIFont.systemFont(ofSize: 12)]).draw(at: CGPoint(x: 50, y: 100))
+            NSAttributedString(string: "hızla tükendi. Yeni sipariş planı hazırlanıyor.",
+                               attributes: [.font: UIFont.systemFont(ofSize: 12)]).draw(at: CGPoint(x: 50, y: 115))
+            for (row, cells) in [["Ürün", "Adet", "Tutar"], ["Kalem", "12", "1.250,50"], ["Defter", "3", "18,00"]].enumerated() {
+                for (column, cell) in cells.enumerated() {
+                    NSAttributedString(string: cell, attributes: [.font: UIFont.systemFont(ofSize: 12)])
+                        .draw(at: CGPoint(x: 50 + column * 160, y: 170 + row * 22))
+                }
+            }
+        }
+    }
+
+    /// Üretilen Office dosyasını Apple'ın Office motoruyla PDF'e çevirip metnini döndürür (dosya geçerli mi?).
+    func officeText(_ url: URL) async throws -> String {
+        let data = try await OfficeConverter.pdf(from: url)
+        return PDFDocument(data: data)?.string ?? ""
+    }
+
+    func testPDFToWord() async throws {
+        let result = try await run("pdf_to_word", [try input(reportPDF(), "rapor.pdf")])
+        XCTAssertEqual(result.files[0].pathExtension, "docx")
+        let text = try await officeText(result.files[0])
+        XCTAssertTrue(text.contains("Satış Raporu"), text)
+        XCTAssertTrue(text.contains("yüksek gerçekleşti ve stoklar hızla tükendi"), text)
+        XCTAssertTrue(text.contains("Defter"), text)
+        let image = try await run("pdf_to_word", [try input(reportPDF(), "rapor.pdf")], ["mode": .string("image")])
+        let imageText = try await officeText(image.files[0])
+        XCTAssertTrue(imageText.contains("Satış Raporu"), imageText)
+    }
+
+    func testPDFToExcel() async throws {
+        let result = try await run("pdf_to_excel", [try input(reportPDF(), "rapor.pdf")])
+        XCTAssertEqual(result.files[0].pathExtension, "xlsx")
+        let text = try await officeText(result.files[0])
+        XCTAssertTrue(text.contains("Kalem") && text.contains("Tutar"), text)
+        XCTAssertTrue(text.contains("1250,5") || text.contains("1250.5") || text.contains("1.250,5"), text)
+    }
+
+    func testPDFToPowerPoint() async throws {
+        let result = try await run("pdf_to_ppt", [try input(reportPDF(), "rapor.pdf")])
+        XCTAssertEqual(result.files[0].pathExtension, "pptx")
+        let text = try await officeText(result.files[0])
+        XCTAssertTrue(text.contains("Satış Raporu"), text)
     }
 
     // MARK: ZIP

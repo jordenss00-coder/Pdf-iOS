@@ -73,6 +73,10 @@ struct TextLine {
     var rect: CGRect
     var fontSize: Double
     var chars: [CGRect] = []
+    var bold = false
+    var italic = false
+    /// "#rrggbb"
+    var color = "#000000"
 }
 
 struct PageText {
@@ -256,6 +260,7 @@ final class PDFiumDocument {
             var rect = CGRect.null
             var size = 0.0
             var boxes: [CGRect] = []
+            var style: (bold: Bool, italic: Bool, color: String)?
             func flush() {
                 // Baştaki ve sondaki boşlukları, karakter kutularıyla hizalı kalacak şekilde at.
                 let scalars = Array(current.unicodeScalars)
@@ -264,12 +269,19 @@ final class PDFiumDocument {
                 while end > start, scalars[end - 1].properties.isWhitespace { end -= 1 }
                 if start < end {
                     let text = String(String.UnicodeScalarView(scalars[start..<end]))
-                    lines.append(TextLine(text: text, rect: rect, fontSize: size, chars: Array(boxes[start..<end])))
+                    var line = TextLine(text: text, rect: rect, fontSize: size, chars: Array(boxes[start..<end]))
+                    if let style {
+                        line.bold = style.bold
+                        line.italic = style.italic
+                        line.color = style.color
+                    }
+                    lines.append(line)
                 }
                 current = ""
                 rect = .null
                 size = 0
                 boxes = []
+                style = nil
             }
             let count = Int(FPDFText_CountChars(textPage))
             for i in 0..<count {
@@ -287,6 +299,21 @@ final class PDFiumDocument {
                     if scalar != " " { rect = rect.union(charRect) }
                 }
                 boxes.append(charRect)
+                if style == nil, !scalar.properties.isWhitespace {
+                    var flags: Int32 = 0
+                    let nameLength = FPDFText_GetFontInfo(textPage, Int32(i), nil, 0, &flags)
+                    var name = ""
+                    if nameLength > 0 {
+                        var buffer = [UInt8](repeating: 0, count: Int(nameLength))
+                        _ = FPDFText_GetFontInfo(textPage, Int32(i), &buffer, nameLength, &flags)
+                        name = String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self).lowercased()
+                    }
+                    var r: UInt32 = 0, g: UInt32 = 0, b: UInt32 = 0, a: UInt32 = 0
+                    let hasColor = FPDFText_GetFillColor(textPage, Int32(i), &r, &g, &b, &a) != 0
+                    style = (bold: FPDFText_GetFontWeight(textPage, Int32(i)) >= 600 || name.contains("bold") || name.contains("black"),
+                             italic: flags & 0x40 != 0 || name.contains("italic") || name.contains("oblique"),
+                             color: hasColor ? String(format: "#%02x%02x%02x", r, g, b) : "#000000")
+                }
                 // Yazı boyutu bazı üreticilerde metin matrisinde durur; yazı tipi metrikli kutudan da tahmin et.
                 var loose = FS_RECTF(left: 0, top: 0, right: 0, bottom: 0)
                 if scalar != " ", FPDFText_GetLooseCharBox(textPage, Int32(i), &loose) != 0 {

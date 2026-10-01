@@ -108,7 +108,8 @@ enum Engine {
         "merge", "split", "remove_pages", "extract_pages", "organize", "rotate", "nup", "resize_pages",
         "watermark", "page_numbers", "header_footer", "metadata", "protect", "unlock", "flatten", "repair",
         "images_to_pdf", "word_to_pdf", "excel_to_pdf", "ppt_to_pdf", "html_to_pdf", "scan",
-        "pdf_to_images", "pdf_to_text", "pdf_to_markdown", "ocr",
+        "pdf_to_images", "pdf_to_text", "pdf_to_markdown", "ocr", "compress", "grayscale",
+        "redact", "find_replace", "pdf_to_word", "pdf_to_excel", "pdf_to_ppt",
     ]
 
     static func run(tool: Tool, inputs: [InputFile], options: OptionValues,
@@ -158,6 +159,13 @@ enum Engine {
         case "pdf_to_markdown": return try await ConvertTools.pdfToMarkdown(c)
         case "ocr": return try await OCRTools.ocr(c)
         case "scan": return try await ScanTools.scan(c)
+        case "compress": return try await OptimizeTools.compress(c)
+        case "grayscale": return try await OptimizeTools.grayscale(c)
+        case "redact": return try await RedactTools.redact(c)
+        case "find_replace": return try await TextTools.findReplace(c)
+        case "pdf_to_word": return try await OfficeExportTools.pdfToWord(c)
+        case "pdf_to_excel": return try await OfficeExportTools.pdfToExcel(c)
+        case "pdf_to_ppt": return try await OfficeExportTools.pdfToPowerPoint(c)
         default:
             throw ToolError("Bu araç bir sonraki güncellemede gelecek.")
         }
