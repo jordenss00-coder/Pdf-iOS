@@ -28,6 +28,8 @@ struct ToolView: View {
     @State private var scanning = false
     @State private var locked: [InputFile] = []
     @State private var password = ""
+    @State private var editing = false
+    @State private var editorDocument: PDFDocument?
 
     init(tool: Tool, inputs: [InputFile] = []) {
         self.tool = tool
@@ -72,6 +74,32 @@ struct ToolView: View {
                 }
             }
 
+            if case .editor = tool.workspace, !files.isEmpty {
+                Section {
+                    Button(action: openEditor) {
+                        HStack(spacing: 14) {
+                            Image(systemName: hasEdits ? "checkmark.seal.fill" : "pencil.and.scribble")
+                                .font(.title2)
+                                .foregroundStyle(.white)
+                                .frame(width: 48, height: 48)
+                                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(tool.categoryInfo.gradient))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(hasEdits ? "Düzenlemeler hazır" : "Düzenleyiciyi aç")
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text(hasEdits ? "Değiştirmek için yeniden aç." : editorHint)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
             if !visibleOptions.isEmpty {
                 Section("Seçenekler") {
                     ForEach(visibleOptions) { option in
@@ -112,6 +140,17 @@ struct ToolView: View {
                 addScans(images)
             }
             .ignoresSafeArea()
+        }
+        .fullScreenCover(isPresented: $editing) {
+            if let editorDocument, case .editor(let mode) = tool.workspace {
+                EditorView(tool: tool, document: editorDocument, mode: mode) { edits in
+                    for (key, value) in edits.values { values[key] = value }
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 450_000_000)
+                        run()
+                    }
+                }
+            }
         }
         .navigationDestination(item: $result) { box in
             ResultView(box: box)
@@ -212,14 +251,14 @@ struct ToolView: View {
                 }
                 .tint(tool.categoryInfo.colors.first)
             }
-            Button(action: run) {
+            Button(action: { needsEditor ? openEditor() : run() }) {
                 HStack(spacing: 8) {
                     if running {
                         ProgressView().tint(.white)
                     } else {
                         Image(systemName: "sparkles")
                     }
-                    Text(running ? "Hazırlanıyor…" : tool.action)
+                    Text(running ? "Hazırlanıyor…" : needsEditor ? "Düzenleyiciyi aç" : tool.action)
                         .font(.headline)
                 }
                 .foregroundStyle(.white)
@@ -246,6 +285,53 @@ struct ToolView: View {
 
     private var canRun: Bool {
         Engine.available.contains(tool.id) && (files.count >= tool.minFiles || tool.minFiles == 0)
+    }
+
+    /// Düzenleyiciden gelecek bilgi henüz yoksa çalıştır düğmesi düzenleyiciyi açar.
+    private var needsEditor: Bool {
+        guard case .editor(let mode) = tool.workspace else { return false }
+        switch mode {
+        case .redact:
+            return values.string("areas").isEmpty && values.list("presets").isEmpty
+                && values.string("terms_text").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .crop:
+            return values.string("mode", "manual") == "manual" && values.string("rect").isEmpty
+        case .find:
+            return false
+        case .sign:
+            return values.url("edited_file") == nil && !values.bool("cert_on")
+        default:
+            return values.url("edited_file") == nil
+        }
+    }
+
+    private var hasEdits: Bool {
+        values.url("edited_file") != nil || !values.string("areas").isEmpty || !values.string("rect").isEmpty
+    }
+
+    private var editorHint: String {
+        guard case .editor(let mode) = tool.workspace else { return "" }
+        switch mode {
+        case .edit: return "Metin, çizim, şekil, görsel, not ve bağlantı ekle."
+        case .sign: return "İmzanı çiz, yaz ya da fotoğraftan ekle."
+        case .crop: return "Kırpılacak alanı sayfa üzerinde çiz."
+        case .text: return "Düzeltmek istediğin satıra dokun."
+        case .form: return "Alanlara dokunarak doldur."
+        case .formCreate: return "Alanları otomatik algıla ya da kendin ekle."
+        case .redact: return "Karartılacak alanları çiz."
+        case .find: return ""
+        }
+    }
+
+    private func openEditor() {
+        guard let file = files.first, let document = PDFDocument(url: file.url) else { return }
+        if document.isLocked, let password = file.password { _ = document.unlock(withPassword: password) }
+        guard !document.isLocked else {
+            errorText = "'\(file.name)' parola korumalı. Önce parolayı gir."
+            return
+        }
+        editorDocument = document
+        editing = true
     }
 
     private var contentTypes: [UTType] {

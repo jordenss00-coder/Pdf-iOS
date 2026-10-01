@@ -33,6 +33,38 @@ enum TextSurgery {
         var bold: Bool
         var italic: Bool
         var family: String
+        var invisible = false
+    }
+
+    /// Sayfaya katman olarak yazılacak metin (görünür koordinatlar, taban çizgisi).
+    struct Placement {
+        var text: String
+        var style: Style
+        var baseline: CGPoint
+        var rotation: Int
+    }
+
+    /// Orijinal yazı tipiyle yeniden kodlanamayan (ör. Türkçe karakterli) kelimeler; sayfa koordinatları.
+    struct Fallback {
+        var origin: CGPoint
+        var text: String
+        var style: Style
+    }
+
+    static func placements(_ fallbacks: [Fallback], geometry: PageGeometry) -> [Placement] {
+        fallbacks.map { Placement(text: $0.text, style: $0.style, baseline: geometry.visual($0.origin), rotation: geometry.rotation) }
+    }
+
+    static func draw(_ placements: [Placement], in context: CGContext) {
+        for placement in placements {
+            let style = placement.style
+            context.saveGState()
+            if style.invisible { context.setTextDrawingMode(.invisible) }
+            TextDrawing.draw(placement.text, baseline: placement.baseline, rotation: placement.rotation,
+                             font: Fonts.font(style.family, size: style.size, bold: style.bold, italic: style.italic),
+                             color: style.color, in: context)
+            context.restoreGState()
+        }
     }
 
     /// Sayfanın karakterleri, PDFium'un okuma sırasıyla. PDFium kilidi içinde çağrılmalı.
@@ -72,7 +104,7 @@ enum TextSurgery {
     }
 
     /// Planı uygular. Form XObject içindeki (iç içe) nesnelere dokunulamazsa `nested` true döner.
-    static func apply(_ plan: Plan, chars: [Char], page: FPDF_PAGE, document: FPDF_DOCUMENT) -> (removed: Int, nested: Bool) {
+    static func apply(_ plan: Plan, chars: [Char], page: FPDF_PAGE, document: FPDF_DOCUMENT) -> (removed: Int, nested: Bool, fallbacks: [Fallback]) {
         var topLevel: [FPDF_PAGEOBJECT: Int] = [:]
         for k in 0..<FPDFPage_CountObjects(page) {
             if let object = FPDFPage_GetObject(page, k) { topLevel[object] = Int(k) }
@@ -89,6 +121,7 @@ enum TextSurgery {
         }
         var removed = 0
         var nested = false
+        var fallbacks: [Fallback] = []
         for object in affected.sorted(by: { (topLevel[$0] ?? -1) > (topLevel[$1] ?? -1) }) {
             guard let position = topLevel[object] else {
                 nested = true
@@ -108,12 +141,26 @@ enum TextSurgery {
             // satır değişince de parça kapanır (bir nesne birden fazla satıra yayılabilir).
             var runs: [(origin: CGPoint, text: [UInt16])] = []
             var current: [UInt16] = []
+            var currentText = ""
+            var first: Char?
             var start: CGPoint?
             var currentShift: CGFloat = 0
             var last: CGPoint?
+            let invisible = mode == FPDF_TEXTRENDERMODE_INVISIBLE
             func close() {
-                if let start, !current.isEmpty { runs.append((start, current)) }
+                if let start, !current.isEmpty {
+                    // PDFium gömülü alt küme yazı tiplerinde yalnızca ASCII karakterleri güvenle yeniden kodlayabilir.
+                    if currentText.unicodeScalars.allSatisfy({ $0.value < 0x80 }) {
+                        runs.append((start, current))
+                    } else if let first, !currentText.trimmingCharacters(in: .whitespaces).isEmpty {
+                        var style = TextSurgery.style(of: first)
+                        style.invisible = invisible
+                        fallbacks.append(Fallback(origin: start, text: currentText, style: style))
+                    }
+                }
                 current = []
+                currentText = ""
+                first = nil
                 start = nil
             }
             for char in list {
@@ -128,8 +175,10 @@ enum TextSurgery {
                 if start == nil {
                     start = CGPoint(x: char.origin.x + shift, y: char.origin.y)
                     currentShift = shift
+                    first = char
                 }
                 current += Array(String(char.scalar).utf16)
+                currentText.unicodeScalars.append(char.scalar)
                 last = char.origin
                 if char.scalar.properties.isWhitespace { close() }
             }
@@ -155,7 +204,7 @@ enum TextSurgery {
             }
         }
         if !affected.isEmpty { _ = FPDFPage_GenerateContent(page) }
-        return (removed, nested)
+        return (removed, nested, fallbacks)
     }
 
     /// Karakterin metin nesnesinden yazı stili (yeni metin için sistem yazı tipi seçimi).

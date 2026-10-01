@@ -100,6 +100,7 @@ enum Redactor {
     /// Güvenle düzenlenemeyen (iç içe içerikli) sayfaların listesini döndürür.
     static func apply(_ document: PDFiumDocument, areas: [Int: [CGRect]], color: UIColor) throws -> [Int] {
         var unsafe: [Int] = []
+        var placements: [Int: [TextSurgery.Placement]] = [:]
         for (index, rects) in areas.sorted(by: { $0.key < $1.key }) {
             let secure = try document.withPage(index) { page -> Bool in
                 let geometry = PDFiumDocument.geometry(page)
@@ -112,7 +113,9 @@ enum Redactor {
                         plan.remove.insert(char.index)
                     }
                 }
-                var secure = !TextSurgery.apply(plan, chars: chars, page: page, document: document.handle).nested
+                let surgery = TextSurgery.apply(plan, chars: chars, page: page, document: document.handle)
+                placements[index] = TextSurgery.placements(surgery.fallbacks, geometry: geometry)
+                var secure = !surgery.nested
                 var changed = false
                 var k = FPDFPage_CountObjects(page) - 1
                 while k >= 0 {
@@ -160,6 +163,7 @@ enum Redactor {
             if !secure { unsafe.append(index) }
         }
         try document.stamp(pages: areas.keys.sorted()) { index, _, context in
+            TextSurgery.draw(placements[index] ?? [], in: context)
             context.setFillColor(color.cgColor)
             for rect in areas[index] ?? [] { context.fill(rect) }
         }
@@ -210,10 +214,9 @@ enum TextTools {
         var total = 0
         for input in c.inputs {
             let document = try PDFiumDocument(data: try await c.pdfData(input))
-            var insertions: [Int: [Insertion]] = [:]
-            var rotations: [Int: Int] = [:]
+            var insertions: [Int: [TextSurgery.Placement]] = [:]
             for index in 0..<document.pageCount {
-                let (count, inserts, rotation) = try document.withPage(index) { page -> (Int, [Insertion], Int) in
+                let (count, inserts) = try document.withPage(index) { page -> (Int, [TextSurgery.Placement]) in
                     let geometry = PDFiumDocument.geometry(page)
                     let chars = TextSurgery.characters(page)
                     var plan = TextSurgery.Plan()
@@ -250,29 +253,19 @@ enum TextTools {
                             }
                         }
                     }
-                    guard count > 0 else { return (0, [], geometry.rotation) }
-                    _ = TextSurgery.apply(plan, chars: chars, page: page, document: document.handle)
-                    let visual = inserts.map { insertion -> Insertion in
-                        var moved = insertion
-                        moved.origin = geometry.visual(insertion.origin)
-                        return moved
+                    guard count > 0 else { return (0, []) }
+                    let surgery = TextSurgery.apply(plan, chars: chars, page: page, document: document.handle)
+                    let placed = inserts.map {
+                        TextSurgery.Placement(text: $0.text, style: $0.style, baseline: geometry.visual($0.origin), rotation: geometry.rotation)
                     }
-                    return (count, visual, geometry.rotation)
+                    return (count, placed + TextSurgery.placements(surgery.fallbacks, geometry: geometry))
                 }
                 total += count
-                if !inserts.isEmpty {
-                    insertions[index] = inserts
-                    rotations[index] = rotation
-                }
+                if !inserts.isEmpty { insertions[index] = inserts }
             }
             if !insertions.isEmpty {
                 try document.stamp(pages: insertions.keys.sorted()) { index, _, context in
-                    for insertion in insertions[index] ?? [] {
-                        let style = insertion.style
-                        TextDrawing.draw(insertion.text, baseline: insertion.origin, rotation: rotations[index] ?? 0,
-                                         font: Fonts.font(style.family, size: style.size, bold: style.bold, italic: style.italic),
-                                         color: style.color, in: context)
-                    }
+                    TextSurgery.draw(insertions[index] ?? [], in: context)
                 }
             }
             let url = c.out("\(stem(input.name))_duzeltilmis.pdf")

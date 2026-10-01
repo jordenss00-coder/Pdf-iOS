@@ -361,7 +361,7 @@ final class EngineTests: XCTestCase {
         let source = try input(data)
         let result = try await run("compress", [source], ["level": .string("recommended")])
         let after = result.files[0].fileSize
-        XCTAssertLessThan(after, Int64(data.count) / 2, "önce \(data.count) sonra \(after)")
+        XCTAssertLessThan(after, Int64(data.count) / 2, "önce \(data.count) sonra \(after) \(result.notes)")
         XCTAssertEqual(try pdf(result.files[0]).pageCount, 1)
     }
 
@@ -468,7 +468,102 @@ final class EngineTests: XCTestCase {
         let result = try await run("pdf_to_ppt", [try input(reportPDF(), "rapor.pdf")])
         XCTAssertEqual(result.files[0].pathExtension, "pptx")
         let text = try await officeText(result.files[0])
-        XCTAssertTrue(text.contains("Satış Raporu"), text)
+        XCTAssertTrue(text.contains("Satış") && text.contains("Raporu") && text.contains("Kalem"), text)
+    }
+
+    // MARK: Düzenleyici, kırpma, PDF/A, karşılaştırma, yapay zekâ
+
+    func testEditorExportStampsImageAndRewritesText() throws {
+        let document = try XCTUnwrap(PDFDocument(data: Self.samplePDF(pages: 1)))
+        let page = try XCTUnwrap(document.page(at: 0))
+        let red = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 20)).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 40, height: 20))
+        }
+        page.addAnnotation(ImageAnnotation(image: red, bounds: CGRect(x: 300, y: 300, width: 80, height: 40)))
+        let selection = try XCTUnwrap(document.findString("Sayfa 1", withOptions: []).first)
+        page.addAnnotation(MarkerAnnotation(kind: .textEdit, bounds: selection.bounds(for: page), replacement: "Bölüm 9"))
+        let url = try EditorExport.export(document)
+        let output = try pdf(url)
+        let text = output.string ?? ""
+        XCTAssertTrue(text.contains("Bölüm 9"), text)
+        XCTAssertFalse(text.contains("Sayfa 1"), text)
+        XCTAssertEqual(output.page(at: 0)?.annotations.count, 0)
+        let image = try PDFiumDocument(data: Data(contentsOf: url)).render(page: 0, scale: 1)
+        let pixels = try XCTUnwrap(image.dataProvider?.data)
+        let bytes = try XCTUnwrap(CFDataGetBytePtr(pixels))
+        let x = 340, y = 842 - 320
+        let offset = y * image.bytesPerRow + x * 4
+        XCTAssertGreaterThan(Int(bytes[offset + 2]), 200, "kırmızı")
+        XCTAssertLessThan(Int(bytes[offset + 1]), 80, "yeşil")
+    }
+
+    func testFormDetector() throws {
+        let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { context in
+            context.beginPage()
+            NSAttributedString(string: "Ad: ____________", attributes: [.font: UIFont.systemFont(ofSize: 14)]).draw(at: CGPoint(x: 50, y: 60))
+            let cg = context.cgContext
+            cg.setStrokeColor(UIColor.black.cgColor)
+            cg.setLineWidth(1)
+            cg.strokeLineSegments(between: [CGPoint(x: 50, y: 160), CGPoint(x: 300, y: 160)])
+            cg.stroke(CGRect(x: 50, y: 200, width: 12, height: 12))
+        }
+        let fields = try FormDetector.detect(PDFiumDocument(data: data), page: 0)
+        XCTAssertTrue(fields.contains { $0.checkbox }, "\(fields)")
+        XCTAssertTrue(fields.contains { $0.name == "Ad" }, "\(fields)")
+        XCTAssertGreaterThanOrEqual(fields.filter { !$0.checkbox }.count, 2, "\(fields)")
+    }
+
+    func testCrop() async throws {
+        let source = try input(Self.samplePDF(pages: 2))
+        let auto = try await run("crop", [source], ["mode": .string("auto"), "padding": .number(5)])
+        let box = try XCTUnwrap(try pdf(auto.files[0]).page(at: 0)?.bounds(for: .cropBox))
+        XCTAssertLessThan(box.width, 595)
+        XCTAssertLessThan(box.height, 200)
+        let manual = try await run("crop", [source], ["rect": .string("50,60,200,100"), "apply": .string("current"), "page": .number(1)])
+        let document = try pdf(manual.files[0])
+        XCTAssertEqual(document.page(at: 1)?.bounds(for: .cropBox).width ?? 0, 200, accuracy: 1)
+        XCTAssertEqual(document.page(at: 0)?.bounds(for: .cropBox).width ?? 0, 595, accuracy: 1)
+    }
+
+    func testPDFA() async throws {
+        let result = try await run("pdf_to_pdfa", [try input(Self.samplePDF(pages: 2), "arşiv.pdf")], ["part": .string("2")])
+        let data = try Data(contentsOf: result.files[0])
+        let raw = String(data: data, encoding: .isoLatin1) ?? ""
+        XCTAssertTrue(raw.contains("/OutputIntents"))
+        XCTAssertTrue(raw.contains("<pdfaid:part>2</pdfaid:part>"))
+        let document = try pdf(result.files[0])
+        XCTAssertEqual(document.pageCount, 2)
+        XCTAssertEqual(document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String, "arşiv")
+    }
+
+    func testCompareText() async throws {
+        let a = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 400, height: 300)).pdfData { context in
+            context.beginPage()
+            NSAttributedString(string: "Teslim tarihi 15 Ocak olarak belirlendi", attributes: [.font: UIFont.systemFont(ofSize: 14)]).draw(at: CGPoint(x: 20, y: 40))
+        }
+        let b = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 400, height: 300)).pdfData { context in
+            context.beginPage()
+            NSAttributedString(string: "Teslim tarihi 28 Şubat olarak belirlendi", attributes: [.font: UIFont.systemFont(ofSize: 14)]).draw(at: CGPoint(x: 20, y: 40))
+        }
+        let result = try await run("compare", [try input(a, "a.pdf"), try input(b, "b.pdf")])
+        XCTAssertTrue(result.text?.contains("2 kelime silinmiş") == true, result.text ?? "")
+        let page = try XCTUnwrap(try pdf(result.files[0]).page(at: 0))
+        XCTAssertGreaterThan(page.bounds(for: .mediaBox).width, 800)
+        let visual = try await run("compare", [try input(a, "a.pdf"), try input(b, "b.pdf")], ["mode": .string("visual")])
+        XCTAssertTrue(visual.text?.contains("farklı bölge") == true, visual.text ?? "")
+    }
+
+    func testAISummarizeOrExplainsUnavailability() async throws {
+        do {
+            let result = try await run("ai_summarize", [try input(Self.samplePDF(pages: 1))], ["length": .string("short")])
+            XCTAssertFalse((result.text ?? "").isEmpty)
+        } catch let error as ToolError {
+            if error.message.contains("Apple Intelligence") || error.message.contains("iOS 26") {
+                throw XCTSkip(error.message)
+            }
+            throw error
+        }
     }
 
     // MARK: ZIP

@@ -11,10 +11,13 @@ enum OptimizeTools {
             let original = try await c.pdfData(input)
             let before = (try? Data(contentsOf: input.url).count) ?? original.count
             let document = try PDFiumDocument(data: original)
-            let changed = try PDFiumImageEdit.recompress(document, level: level, gray: gray)
+            let report = try PDFiumImageEdit.recompress(document, level: level, gray: gray)
             var output = try document.save()
+            if report.found + report.nested > 0 && report.changed == 0 {
+                c.notes.append("\(input.name): \(report.found) görsel, \(report.nested) iç içe görsel bulundu; küçültülebilen görsel yok (\(report.failed) başarısız).")
+            }
             // PDFium eski görsel akışlarını dosyada bırakır; PDFKit yalnızca kullanılan nesneleri yazar.
-            if changed > 0, let cleaned = PDFDocument(data: output)?.dataRepresentation(), cleaned.count < output.count {
+            if report.changed > 0, let cleaned = PDFDocument(data: output)?.dataRepresentation(), cleaned.count < output.count {
                 output = cleaned
             }
             if output.count >= before {

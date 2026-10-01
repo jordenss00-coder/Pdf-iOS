@@ -49,7 +49,8 @@ final class DocxWriter {
             if run.bold { rpr += "<w:b/>" }
             if run.italic { rpr += "<w:i/>" }
             if let color = run.color, color.lowercased() != "#000000" {
-                rpr += #"<w:color w:val="\#(color.replacingOccurrences(of: "#", with: "").uppercased())"/>"#
+                let hex = color.replacingOccurrences(of: "#", with: "").uppercased()
+                rpr += "<w:color w:val=\"\(hex)\"/>"
             }
             if let size = run.size {
                 let half = max(2, Int((size * 2).rounded()))
@@ -337,7 +338,8 @@ final class PptxWriter {
                 <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
                 <p:txBody><a:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="t"><a:noAutofit/></a:bodyPr><a:lstStyle/>\
                 <a:p><a:r><a:rPr lang="tr-TR" sz="\(size)" b="\(box.bold ? 1 : 0)" i="\(box.italic ? 1 : 0)" dirty="0">\
-                <a:solidFill><a:srgbClr val="\(color)"/></a:solidFill></a:rPr><a:t>\(xmlEscape(box.text))</a:t></a:r></a:p></p:txBody></p:sp>
+                <a:solidFill><a:srgbClr val="\(color)"/></a:solidFill><a:latin typeface="Arial"/><a:cs typeface="Arial"/></a:rPr>\
+                <a:t>\(xmlEscape(box.text))</a:t></a:r></a:p></p:txBody></p:sp>
                 """
                 shapeID += 1
             }

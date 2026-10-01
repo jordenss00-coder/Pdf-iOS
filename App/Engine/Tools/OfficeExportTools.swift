@@ -273,8 +273,10 @@ enum OfficeExportTools {
                 var boxes: [PptxWriter.TextBox] = []
                 if editable {
                     for line in try document.text(page: index).lines where !line.rect.isNull {
+                        // Yazı tipi farkları metni taşırmasın diye kutu biraz geniş tutulur.
                         let frame = CGRect(x: line.rect.minX * sx, y: line.rect.minY * sy,
-                                           width: (line.rect.width + 4) * sx, height: max(line.rect.height, CGFloat(line.fontSize)) * sy)
+                                           width: (line.rect.width * 1.2 + CGFloat(line.fontSize)) * sx,
+                                           height: max(line.rect.height, CGFloat(line.fontSize) * 1.3) * sy)
                         boxes.append(PptxWriter.TextBox(frame: frame, text: line.text, size: max(1, line.fontSize * Double(sy)),
                                                         bold: line.bold, italic: line.italic, color: line.color))
                     }

@@ -110,6 +110,8 @@ enum Engine {
         "images_to_pdf", "word_to_pdf", "excel_to_pdf", "ppt_to_pdf", "html_to_pdf", "scan",
         "pdf_to_images", "pdf_to_text", "pdf_to_markdown", "ocr", "compress", "grayscale",
         "redact", "find_replace", "pdf_to_word", "pdf_to_excel", "pdf_to_ppt",
+        "edit", "sign", "edit_text", "form", "form_create", "crop",
+        "pdf_to_pdfa", "compare", "ai_summarize", "ai_translate",
     ]
 
     static func run(tool: Tool, inputs: [InputFile], options: OptionValues,
@@ -166,6 +168,12 @@ enum Engine {
         case "pdf_to_word": return try await OfficeExportTools.pdfToWord(c)
         case "pdf_to_excel": return try await OfficeExportTools.pdfToExcel(c)
         case "pdf_to_ppt": return try await OfficeExportTools.pdfToPowerPoint(c)
+        case "edit", "sign", "edit_text", "form", "form_create": return try await EditorTools.finish(c)
+        case "crop": return try await EditorTools.crop(c)
+        case "pdf_to_pdfa": return try await ArchiveTools.pdfToPDFA(c)
+        case "compare": return try await CompareTools.compare(c)
+        case "ai_summarize": return try await AITools.summarize(c)
+        case "ai_translate": return try await AITools.translate(c)
         default:
             throw ToolError("Bu araç bir sonraki güncellemede gelecek.")
         }

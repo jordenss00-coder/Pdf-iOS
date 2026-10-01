@@ -57,14 +57,27 @@ enum PDFiumImageEdit {
         "low": Level(threshold: 220, target: 180, quality: 0.82),
     ]
 
-    /// Sayfadaki yüksek çözünürlüklü görselleri küçültüp JPEG olarak yeniden kodlar. Değişen görsel sayısını döndürür.
-    static func recompress(_ document: PDFiumDocument, level: Level, gray: Bool) throws -> Int {
+    struct Report {
+        var found = 0
+        var nested = 0
         var changed = 0
+        var failed = 0
+    }
+
+    /// Sayfadaki yüksek çözünürlüklü görselleri küçültüp JPEG olarak yeniden kodlar.
+    static func recompress(_ document: PDFiumDocument, level: Level, gray: Bool) throws -> Report {
+        var report = Report()
         for index in 0..<document.pageCount {
-            changed += try document.withPage(index) { page -> Int in
+            try document.withPage(index) { page in
                 var count = 0
                 for k in 0..<FPDFPage_CountObjects(page) {
-                    guard let object = FPDFPage_GetObject(page, k), FPDFPageObj_GetType(object) == 3 else { continue }
+                    guard let object = FPDFPage_GetObject(page, k) else { continue }
+                    if FPDFPageObj_GetType(object) == 5 {
+                        report.nested += nestedImages(object)
+                        continue
+                    }
+                    guard FPDFPageObj_GetType(object) == 3 else { continue }
+                    report.found += 1
                     var pixelWidth: UInt32 = 0, pixelHeight: UInt32 = 0
                     guard FPDFImageObj_GetImagePixelSize(object, &pixelWidth, &pixelHeight) != 0, pixelWidth > 8, pixelHeight > 8 else { continue }
                     var left: Float = 0, bottom: Float = 0, right: Float = 0, top: Float = 0
@@ -81,13 +94,27 @@ enum PDFiumImageEdit {
                           let jpeg = try? ImageCoding.encode(smaller, as: .jpeg, quality: level.quality) else { continue }
                     let original = FPDFImageObj_GetImageDataRaw(object, nil, 0)
                     guard UInt(jpeg.count) < original || gray else { continue }
-                    if replace(object, on: page, jpeg: jpeg) { count += 1 }
+                    if replace(object, on: page, jpeg: jpeg) { count += 1 } else { report.failed += 1 }
                 }
                 if count > 0 { _ = FPDFPage_GenerateContent(page) }
-                return count
+                report.changed += count
             }
         }
-        return changed
+        return report
+    }
+
+    /// Form nesnesi içindeki görsel sayısı (iç içe dahil).
+    static func nestedImages(_ form: FPDF_PAGEOBJECT) -> Int {
+        var total = 0
+        for k in 0..<FPDFFormObj_CountObjects(form) {
+            guard let child = FPDFFormObj_GetObject(form, UInt(k)) else { continue }
+            switch FPDFPageObj_GetType(child) {
+            case 3: total += 1
+            case 5: total += nestedImages(child)
+            default: break
+            }
+        }
+        return total
     }
 
     /// Metin ve çizim renklerini griye çevirir. Gri yapılamayan içerik (form nesneleri, gölgelendirmeler)
