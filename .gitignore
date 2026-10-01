@@ -6,3 +6,11 @@ DerivedData/
 *.xcresult
 .DS_Store
 xcuserdata/
+
+# Gizli anahtarlar asla depoya girmez.
+*.p8
+*.p12
+*.pem
+*.key
+*.mobileprovision
+cert_key*
