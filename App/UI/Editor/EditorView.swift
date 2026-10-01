@@ -14,12 +14,14 @@ struct EditorView: View {
         case note(PDFPage, CGPoint)
         case link(PDFPage, PDFAnnotation)
         case editText(PDFPage, PDFSelection)
+        case combo(PDFPage, CGRect)
         var id: String {
             switch self {
             case .text: return "text"
             case .note: return "note"
             case .link: return "link"
             case .editText: return "edit"
+            case .combo: return "combo"
             }
         }
     }
@@ -27,6 +29,7 @@ struct EditorView: View {
     @State private var prompt: Prompt?
     @State private var input = ""
     @State private var signing = false
+    @State private var signingInitials = false
     @State private var signatureTarget: (PDFPage, CGPoint)?
     @State private var photo: PhotosPickerItem?
     @State private var choosingPhoto = false
@@ -43,7 +46,10 @@ struct EditorView: View {
 
     var body: some View {
         NavigationStack {
-            EditorCanvas(model: model, onTap: handleTap, onArea: { page, annotation in prompt = .link(page, annotation) })
+            EditorCanvas(model: model, onTap: handleTap, onArea: { page, annotation in
+                input = ""
+                prompt = model.tool == .combo ? .combo(page, annotation.bounds) : .link(page, annotation)
+            })
                 .ignoresSafeArea(edges: .bottom)
                 .safeAreaInset(edge: .bottom) { palette }
                 .navigationTitle(tool.name)
@@ -74,6 +80,13 @@ struct EditorView: View {
                     SignaturePad { image in
                         signing = false
                         place(image, at: signatureTarget, widthRatio: 0.3)
+                    }
+                    .presentationDetents([.medium, .large])
+                }
+                .sheet(isPresented: $signingInitials) {
+                    SignaturePad(initials: true) { image in
+                        signingInitials = false
+                        place(image, at: signatureTarget, widthRatio: 0.12)
                     }
                     .presentationDetents([.medium, .large])
                 }
@@ -109,7 +122,7 @@ struct EditorView: View {
                             .onTapGesture { model.color = color }
                     }
                     Spacer()
-                    if model.tool == .text {
+                    if model.tool == .text || model.tool == .date {
                         Stepper("\(Int(model.fontSize)) pt", value: $model.fontSize, in: 6...72, step: 2)
                             .font(.caption.monospacedDigit())
                             .fixedSize()
@@ -162,7 +175,7 @@ struct EditorView: View {
     }
 
     private var showsStyleControls: Bool {
-        [.text, .draw, .rectangle, .ellipse, .line, .arrow].contains(model.tool)
+        [.text, .date, .draw, .rectangle, .ellipse, .line, .arrow].contains(model.tool)
     }
 
     private func toolButton(_ item: EditorTool) -> some View {
@@ -170,6 +183,7 @@ struct EditorView: View {
         return Button {
             withAnimation(.snappy) { model.tool = item }
             if item == .signature { signatureTarget = nil; signing = true }
+            if item == .initials { signatureTarget = nil; signingInitials = true }
             if item == .image { photoTarget = nil; choosingPhoto = true }
         } label: {
             VStack(spacing: 4) {
@@ -198,6 +212,11 @@ struct EditorView: View {
         case .signature:
             signatureTarget = (page, point)
             signing = true
+        case .initials:
+            signatureTarget = (page, point)
+            signingInitials = true
+        case .date:
+            addText(Self.today, on: page, at: point)
         case .image:
             photoTarget = (page, point)
             choosingPhoto = true
@@ -216,6 +235,30 @@ struct EditorView: View {
         default:
             break
         }
+    }
+
+    static var today: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "tr_TR")
+        formatter.dateFormat = "dd.MM.yyyy"
+        return formatter.string(from: Date())
+    }
+
+    /// Dokunulan yere serbest metin ekler (yazı boyutu ve renk araç çubuğundan).
+    private func addText(_ text: String, on page: PDFPage, at point: CGPoint) {
+        let font = UIFont.systemFont(ofSize: model.fontSize)
+        let size = (text as NSString).boundingRect(with: CGSize(width: 400, height: 2000), options: .usesLineFragmentOrigin,
+                                                     attributes: [.font: font], context: nil).size
+        let annotation = PDFAnnotation(bounds: CGRect(x: point.x, y: point.y - size.height - 4, width: size.width + 10, height: size.height + 6),
+                                       forType: .freeText, withProperties: nil)
+        annotation.contents = text
+        annotation.font = font
+        annotation.fontColor = model.color
+        annotation.color = .clear
+        let border = PDFBorder()
+        border.lineWidth = 0
+        annotation.border = border
+        model.add(annotation, to: page)
     }
 
     private func place(_ image: UIImage, at target: (PDFPage, CGPoint)?, widthRatio: CGFloat) {
@@ -244,6 +287,8 @@ struct EditorView: View {
                         .autocorrectionDisabled()
                 case .editText:
                     TextField("Yeni metin", text: $input, axis: .vertical).lineLimit(1...4)
+                case .combo:
+                    TextField("Seçenekler (virgülle ayır)", text: $input, axis: .vertical).lineLimit(1...4)
                 }
             }
             .navigationTitle(promptTitle(prompt))
@@ -265,6 +310,7 @@ struct EditorView: View {
         case .note: return "Not ekle"
         case .link: return "Bağlantı adresi"
         case .editText: return "Yazıyı düzelt"
+        case .combo: return "Açılır liste seçenekleri"
         }
     }
 
@@ -274,19 +320,21 @@ struct EditorView: View {
         switch prompt {
         case .text(let page, let point):
             guard !text.isEmpty else { return }
-            let font = UIFont.systemFont(ofSize: model.fontSize)
-            let size = (text as NSString).boundingRect(with: CGSize(width: 400, height: 2000), options: .usesLineFragmentOrigin,
-                                                         attributes: [.font: font], context: nil).size
-            let annotation = PDFAnnotation(bounds: CGRect(x: point.x, y: point.y - size.height - 4, width: size.width + 10, height: size.height + 6),
-                                           forType: .freeText, withProperties: nil)
-            annotation.contents = text
-            annotation.font = font
-            annotation.fontColor = model.color
-            annotation.color = .clear
-            let border = PDFBorder()
-            border.lineWidth = 0
-            annotation.border = border
-            model.add(annotation, to: page)
+            addText(text, on: page, at: point)
+        case .combo(let page, let rect):
+            let choices = text.split(whereSeparator: { $0 == "," || $0 == "\n" })
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            guard !choices.isEmpty else { return }
+            let field = PDFAnnotation(bounds: rect, forType: .widget, withProperties: nil)
+            field.widgetFieldType = .choice
+            field.isListChoice = false
+            field.choices = choices
+            field.widgetStringValue = choices[0]
+            field.fieldName = "Liste \(Int.random(in: 1000...9999))"
+            field.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.12)
+            field.font = .systemFont(ofSize: max(8, min(14, rect.height * 0.6)))
+            model.add(field, to: page)
         case .note(let page, let point):
             guard !text.isEmpty else { return }
             let annotation = PDFAnnotation(bounds: CGRect(x: point.x, y: point.y - 20, width: 20, height: 20), forType: .text, withProperties: nil)

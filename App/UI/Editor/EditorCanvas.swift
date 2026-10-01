@@ -98,7 +98,10 @@ struct EditorCanvas: UIViewRepresentable {
             startLocation = location
             points = [point]
             if model.tool == .select {
-                if let annotation = page.annotations.last(where: { $0.bounds.insetBy(dx: -8, dy: -8).contains(point) && $0.type != "Widget" }) {
+                // Form oluştururken alanlar da seçilip taşınabilir.
+                if let annotation = page.annotations.last(where: {
+                    $0.bounds.insetBy(dx: -8, dy: -8).contains(point) && ($0.type != "Widget" || model.mode == .formCreate)
+                }) {
                     model.selected = annotation
                     moving = (annotation, point, annotation.bounds)
                 } else {
@@ -119,7 +122,7 @@ struct EditorCanvas: UIViewRepresentable {
                 replacePreview(ink(points), on: page)
             case .line, .arrow:
                 replacePreview(line(from: start, to: point, arrow: model.tool == .arrow), on: page)
-            case let tool where tool.dragsRect || tool == .link:
+            case let tool where tool.dragsRect || tool == .link || tool == .combo:
                 let rect = CGRect(x: min(start.x, point.x), y: min(start.y, point.y), width: abs(point.x - start.x), height: abs(point.y - start.y))
                 replacePreview(area(tool, rect: rect), on: page)
             default:
@@ -143,16 +146,16 @@ struct EditorCanvas: UIViewRepresentable {
                 guard let preview else { return }
                 page.removeAnnotation(preview)
                 if !isTap || model.tool == .draw { model.add(preview, to: page) }
-            case .text, .note, .signature, .image, .editText, .checkbox:
+            case .text, .note, .signature, .initials, .date, .image, .editText, .checkbox:
                 if isTap { onTap(page, point) }
-            case let tool where tool.dragsRect || tool == .link:
+            case let tool where tool.dragsRect || tool == .link || tool == .combo:
                 guard let preview else { return }
                 page.removeAnnotation(preview)
                 guard preview.bounds.width > 6, preview.bounds.height > 6 else { return }
                 if tool == .cropArea {
                     for marker in model.markers where marker.kind == .crop { marker.page?.removeAnnotation(marker) }
                 }
-                if tool == .link {
+                if tool == .link || tool == .combo {
                     onArea(page, preview)
                 } else {
                     model.add(preview, to: page)
@@ -247,7 +250,14 @@ struct EditorCanvas: UIViewRepresentable {
                 field.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.12)
                 field.font = .systemFont(ofSize: max(8, min(14, rect.height * 0.6)))
                 return field
-            case .link:
+            case .signatureField:
+                let field = PDFAnnotation(bounds: rect, forType: .widget, withProperties: nil)
+                field.widgetFieldType = .signature
+                field.fieldName = "İmza \(Int.random(in: 1000...9999))"
+                field.backgroundColor = UIColor.systemIndigo.withAlphaComponent(0.12)
+                field.border = border(1)
+                return field
+            case .link, .combo:
                 let link = PDFAnnotation(bounds: rect, forType: .square, withProperties: nil)
                 link.color = .systemBlue
                 link.border = border(1)

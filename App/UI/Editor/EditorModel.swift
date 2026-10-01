@@ -3,7 +3,7 @@ import SwiftUI
 
 enum EditorTool: String, CaseIterable, Identifiable {
     case pan, select, text, draw, highlight, rectangle, ellipse, line, arrow, whiteout, image, note, link
-    case signature, editText, redactArea, cropArea, field, checkbox
+    case signature, initials, date, editText, redactArea, cropArea, field, checkbox, combo, signatureField
 
     var id: String { rawValue }
 
@@ -23,6 +23,10 @@ enum EditorTool: String, CaseIterable, Identifiable {
         case .note: return "Not"
         case .link: return "Bağlantı"
         case .signature: return "İmza"
+        case .initials: return "Paraf"
+        case .date: return "Tarih"
+        case .combo: return "Açılır liste"
+        case .signatureField: return "İmza alanı"
         case .editText: return "Yazıyı düzelt"
         case .redactArea: return "Karart"
         case .cropArea: return "Kırp"
@@ -47,6 +51,10 @@ enum EditorTool: String, CaseIterable, Identifiable {
         case .note: return "note.text"
         case .link: return "link"
         case .signature: return "signature"
+        case .initials: return "pencil.line"
+        case .date: return "calendar"
+        case .combo: return "list.bullet.rectangle"
+        case .signatureField: return "rectangle.and.pencil.and.ellipsis"
         case .editText: return "character.cursor.ibeam"
         case .redactArea: return "rectangle.fill"
         case .cropArea: return "crop"
@@ -57,18 +65,18 @@ enum EditorTool: String, CaseIterable, Identifiable {
 
     /// Sürükleyerek alan çizen araçlar.
     var dragsRect: Bool {
-        [.highlight, .rectangle, .ellipse, .whiteout, .redactArea, .cropArea, .field].contains(self)
+        [.highlight, .rectangle, .ellipse, .whiteout, .redactArea, .cropArea, .field, .signatureField].contains(self)
     }
 
     static func tools(for mode: EditorMode) -> [EditorTool] {
         switch mode {
         case .edit: return [.pan, .select, .text, .draw, .highlight, .rectangle, .ellipse, .line, .arrow, .whiteout, .image, .signature, .note, .link, .editText]
-        case .sign: return [.pan, .select, .signature, .text, .draw]
+        case .sign: return [.pan, .select, .signature, .initials, .date, .text, .image, .draw]
         case .crop: return [.pan, .cropArea]
-        case .text: return [.pan, .editText, .select]
+        case .text: return [.pan, .editText, .select, .text, .whiteout]
         case .find: return [.pan]
         case .form: return [.pan]
-        case .formCreate: return [.pan, .select, .field, .checkbox]
+        case .formCreate: return [.pan, .select, .field, .checkbox, .combo, .signatureField]
         case .redact: return [.pan, .redactArea, .select]
         }
     }

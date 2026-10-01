@@ -58,7 +58,19 @@ struct ToolView: View {
                         addButtons
                     }
                 } header: {
-                    Text(files.count > 1 ? "Dosyalar (\(files.count))" : "Dosya")
+                    HStack {
+                        Text(files.count > 1 ? "Dosyalar (\(files.count))" : "Dosya")
+                        Spacer()
+                        if tool.sortable && files.count > 1 {
+                            Button {
+                                withAnimation { files.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
+                            } label: {
+                                Label("Ada göre sırala", systemImage: "arrow.up.arrow.down")
+                                    .font(.caption.weight(.semibold))
+                                    .textCase(nil)
+                            }
+                        }
+                    }
                 } footer: {
                     if tool.sortable && files.count > 1 {
                         Text("Sırayı değiştirmek için dosyayı basılı tutup sürükle.")

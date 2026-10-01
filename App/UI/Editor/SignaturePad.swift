@@ -4,6 +4,7 @@ import SwiftUI
 
 /// İmza oluşturma: çiz, yaz ya da fotoğraftan al. Son imza tekrar kullanılmak üzere saklanır.
 struct SignaturePad: View {
+    var initials = false
     let onDone: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var mode = 0
@@ -12,7 +13,7 @@ struct SignaturePad: View {
     @State private var fontName = "Snell Roundhand"
     @State private var photo: PhotosPickerItem?
     @State private var photoImage: UIImage?
-    @State private var saved: UIImage? = SignatureStore.load()
+    @State private var saved: UIImage?
 
     private let fonts = ["Snell Roundhand", "Bradley Hand", "Noteworthy", "Savoye LET", "Zapfino"]
 
@@ -26,7 +27,7 @@ struct SignaturePad: View {
                         HStack {
                             Image(uiImage: saved).resizable().scaledToFit().frame(height: 44)
                             Spacer()
-                            Text("Kayıtlı imzayı kullan").font(.subheadline.weight(.semibold))
+                            Text(initials ? "Kayıtlı parafı kullan" : "Kayıtlı imzayı kullan").font(.subheadline.weight(.semibold))
                         }
                         .padding(12)
                         .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemBackground)))
@@ -55,12 +56,12 @@ struct SignaturePad: View {
                         }
                     case 1:
                         VStack(spacing: 12) {
-                            TextField("Adınız Soyadınız", text: $typed)
+                            TextField(initials ? "Baş harfleriniz" : "Adınız Soyadınız", text: $typed)
                                 .textFieldStyle(.roundedBorder)
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack {
                                     ForEach(fonts, id: \.self) { font in
-                                        Text(typed.isEmpty ? "İmza" : typed)
+                                        Text(typed.isEmpty ? (initials ? "AY" : "İmza") : typed)
                                             .font(.custom(font, size: 26))
                                             .foregroundStyle(.black)
                                             .padding(.horizontal, 14)
@@ -79,7 +80,7 @@ struct SignaturePad: View {
                                 Image(uiImage: photoImage).resizable().scaledToFit().frame(height: 140)
                             }
                             PhotosPicker(selection: $photo, matching: .images) {
-                                Label(photoImage == nil ? "İmza fotoğrafı seç" : "Başka fotoğraf seç", systemImage: "photo")
+                                Label(photoImage == nil ? (initials ? "Paraf fotoğrafı seç" : "İmza fotoğrafı seç") : "Başka fotoğraf seç", systemImage: "photo")
                             }
                             .buttonStyle(.bordered)
                         }
@@ -89,8 +90,9 @@ struct SignaturePad: View {
                 Spacer()
             }
             .padding()
-            .navigationTitle("İmza")
+            .navigationTitle(initials ? "Paraf" : "İmza")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { saved = SignatureStore.load(initials: initials) }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Vazgeç") { dismiss() }
@@ -134,7 +136,7 @@ struct SignaturePad: View {
             image = photoImage
         }
         guard let image else { return }
-        SignatureStore.save(image)
+        SignatureStore.save(image, initials: initials)
         onDone(image)
     }
 }
@@ -155,18 +157,18 @@ private struct CanvasView: UIViewRepresentable {
 }
 
 enum SignatureStore {
-    private static var url: URL {
+    private static func url(initials: Bool) -> URL {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder.appendingPathComponent("imza.png")
+        return folder.appendingPathComponent(initials ? "paraf.png" : "imza.png")
     }
 
-    static func load() -> UIImage? {
-        UIImage(contentsOfFile: url.path)
+    static func load(initials: Bool = false) -> UIImage? {
+        UIImage(contentsOfFile: url(initials: initials).path)
     }
 
-    static func save(_ image: UIImage) {
-        try? image.pngData()?.write(to: url, options: .completeFileProtection)
+    static func save(_ image: UIImage, initials: Bool = false) {
+        try? image.pngData()?.write(to: url(initials: initials), options: .completeFileProtection)
     }
 
     /// Kağıt fotoğrafındaki beyaz arka planı saydam yapar.
