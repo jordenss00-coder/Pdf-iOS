@@ -1,0 +1,59 @@
+name: TestFlight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+jobs:
+  testflight:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      BUNDLE_ID: com.jordenss00.pdfatolye
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
+      APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      CERTIFICATE_PRIVATE_KEY: ${{ secrets.CERTIFICATE_PRIVATE_KEY }}
+    steps:
+      - name: Check secrets
+        run: |
+          for name in APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_PRIVATE_KEY CERTIFICATE_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then echo "::error::GitHub secret eksik: $name"; missing=1; fi
+          done
+          exit "${missing:-0}"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tools
+        run: |
+          brew install xcodegen
+          python -m pip install codemagic-cli-tools
+      - name: Prepare project
+        run: |
+          ./scripts/fetch-pdfium.sh
+          xcodegen generate
+      - name: Fetch signing files
+        run: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+      - name: Build IPA
+        run: |
+          xcode-project build-ipa --project PDFAtolye.xcodeproj --scheme PDFAtolye \
+            --archive-xcargs "COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=${{ github.run_number }}"
+      - name: Upload to App Store Connect
+        run: app-store-connect publish --path "build/ios/ipa/*.ipa"
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-logs
+          path: |
+            ~/Library/Logs/gym/*.log
+            /tmp/xcodebuild_logs/*.log
+            build/ios/ipa/*.log
+          retention-days: 7

@@ -16,6 +16,18 @@ Derleme ve testler GitHub Actions'ın macOS makinelerinde çalışır (`.github/
 4. Sonuçlar iş özetinde tablo olarak ve `ios-spike` çıktısında görünür.
 
 Örnek Office dosyaları `scripts/make-fixtures.py` ile üretilir (`Fixtures/`).
+Uygulama ikonu `scripts/make-icon.py` ile masaüstündeki marka işaretinden üretilir.
+
+## TestFlight
+
+`TestFlight` iş akışı elle başlatılır (`gh workflow run TestFlight`). Codemagic CLI
+araçları App Store Connect API anahtarıyla dağıtım sertifikasını ve profilini
+oluşturur ya da indirir, imzalı IPA'yı derler ve App Store Connect'e yükler.
+Sürüm numarası iş akışının koşu numarasıdır.
+
+Gereken GitHub secret'ları: `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_KEY_IDENTIFIER`,
+`APP_STORE_CONNECT_PRIVATE_KEY` (.p8 içeriği), `CERTIFICATE_PRIVATE_KEY`
+(dağıtım sertifikasının RSA anahtarı; her koşuda aynı sertifika kullanılır).
 
 ## Klasörler
 
