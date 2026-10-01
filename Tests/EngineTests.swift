@@ -344,21 +344,24 @@ final class EngineTests: XCTestCase {
     // MARK: İyileştirme, karartma, bul-değiştir
 
     func testCompressShrinksScans() async throws {
-        let size = CGSize(width: 2400, height: 3200)
+        let size = CGSize(width: 2480, height: 3508)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        let photo = UIGraphicsImageRenderer(size: size, format: format).image { context in
-            for y in stride(from: 0, to: 3200, by: 16) {
-                for x in stride(from: 0, to: 2400, by: 16) {
-                    UIColor(hue: CGFloat((x + y) % 360) / 360, saturation: 0.6, brightness: CGFloat.random(in: 0.5...1), alpha: 1).setFill()
-                    context.fill(CGRect(x: x, y: y, width: 16, height: 16))
-                }
+        format.opaque = true
+        let scan = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let colors = [UIColor(red: 0.98, green: 0.96, blue: 0.92, alpha: 1).cgColor, UIColor(red: 0.85, green: 0.88, blue: 0.95, alpha: 1).cgColor]
+            let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1])!
+            context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            for line in 0..<60 {
+                NSAttributedString(string: "Satır \(line + 1): taranmış belge örneği, ğüşıöç İĞÜŞÖÇ 1234567890",
+                                   attributes: [.font: UIFont.systemFont(ofSize: 38), .foregroundColor: UIColor.darkGray])
+                    .draw(at: CGPoint(x: 120, y: 120 + CGFloat(line) * 54))
             }
         }
-        let jpeg = try XCTUnwrap(photo.jpegData(compressionQuality: 0.95))
+        let png = try XCTUnwrap(scan.pngData())
         let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { context in
             context.beginPage()
-            UIImage(data: jpeg)?.draw(in: CGRect(x: 0, y: 0, width: 595, height: 842))
+            UIImage(data: png)?.draw(in: CGRect(x: 0, y: 0, width: 595, height: 842))
         }
         let source = try input(data)
         let result = try await run("compress", [source], ["level": .string("recommended")])
@@ -613,6 +616,34 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(savedText, original, "yalnızca kaydetme")
         XCTAssertEqual(regenerated, original, "GenerateContent")
         XCTAssertEqual(stampedText.trimmingCharacters(in: .whitespacesAndNewlines), original.trimmingCharacters(in: .whitespacesAndNewlines), "katman")
+    }
+
+    func testDiagnoseTurkishRedaction() throws {
+        let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { context in
+            context.beginPage()
+            NSAttributedString(string: "Müşteri: Ayşe Yılmaz", attributes: [.font: UIFont.systemFont(ofSize: 14)]).draw(at: CGPoint(x: 50, y: 60))
+        }
+        let document = try PDFiumDocument(data: data)
+        let line = try document.text(page: 0).lines.first?.text ?? "-"
+        print("DIAG|pdfium-line|\(line)|\(line.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " "))")
+        try document.withPage(0) { page in
+            let chars = TextSurgery.characters(page)
+            let objects = Set(chars.compactMap { $0.object.map { Int(bitPattern: $0) } })
+            print("DIAG|chars|\(chars.count)|objects \(objects.count)|\(chars.map { "\($0.scalar.value):\($0.generated ? "g" : "r")" }.joined(separator: ","))")
+            var plan = TextSurgery.Plan()
+            for char in chars where "Yılmaz".unicodeScalars.contains(char.scalar) && char.origin.x > 120 { plan.remove.insert(char.index) }
+            let surgery = TextSurgery.apply(plan, chars: chars, page: page, document: document.handle)
+            print("DIAG|surgery|removed \(surgery.removed)|nested \(surgery.nested)|fallbacks \(surgery.fallbacks.map(\.text))")
+        }
+        let rewritten = PDFDocument(data: try document.save())?.string ?? "-"
+        print("DIAG|after-surgery|\(rewritten)|\(rewritten.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " "))")
+        let blank = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)).pdfData { $0.beginPage() }
+        let overlay = try PDFiumDocument(data: blank)
+        try overlay.stamp(pages: [0]) { _, _, context in
+            TextDrawing.draw("Müşteri: Ayşe", baseline: CGPoint(x: 50, y: 100), rotation: 0, font: Fonts.font("Helvetica", size: 14), color: .black, in: context)
+        }
+        let overlayText = PDFDocument(data: try overlay.save())?.string ?? "-"
+        print("DIAG|overlay|\(overlayText)|\(overlayText.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " "))")
     }
 
     // MARK: ZIP

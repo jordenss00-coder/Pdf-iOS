@@ -20,6 +20,7 @@ struct HomeView: View {
                 categoryBar
                 if search.isEmpty && category == nil {
                     ForEach(Catalog.categories) { section($0) }
+                    workflows
                 } else if filtered.isEmpty {
                     ContentUnavailableView.search(text: search)
                 } else {
@@ -155,6 +156,26 @@ struct HomeView: View {
                 .padding(.vertical, 4)
             }
         }
+    }
+
+    private var workflows: some View {
+        NavigationLink(value: Route.workflows) {
+            HStack(spacing: 14) {
+                GradientIcon(symbol: "flowchart", colors: Brand.colors, size: 46)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("İş akışları").font(.headline).foregroundStyle(.primary)
+                    Text("Numarala, sıkıştır, döndür… birkaç adımı tek dokunuşla uygula.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+        }
+        .buttonStyle(PressableStyle())
     }
 
     private var categoryBar: some View {

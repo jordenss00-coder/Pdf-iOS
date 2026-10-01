@@ -2,6 +2,7 @@ import SwiftUI
 
 enum Route: Hashable {
     case tool(String, [InputFile])
+    case workflows
 }
 
 @MainActor

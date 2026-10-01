@@ -30,6 +30,8 @@ struct RootView: View {
                         if let tool = Catalog.tool(id) {
                             ToolView(tool: tool, inputs: inputs)
                         }
+                    case .workflows:
+                        WorkflowsView()
                     }
                 }
         }

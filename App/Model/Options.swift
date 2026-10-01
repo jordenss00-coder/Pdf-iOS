@@ -1,7 +1,7 @@
 import Foundation
 
 /// Bir araç seçeneğinin değeri. Seçim listelerinin değerleri metin olarak tutulur.
-enum OptionValue: Equatable {
+enum OptionValue: Equatable, Codable {
     case bool(Bool)
     case number(Double)
     case string(String)
@@ -11,7 +11,7 @@ enum OptionValue: Equatable {
     case file(URL)
 }
 
-struct ReplacePair: Equatable, Identifiable {
+struct ReplacePair: Equatable, Identifiable, Codable {
     var id = UUID()
     var find = ""
     var replace = ""
@@ -56,7 +56,7 @@ struct ToolOption: Identifiable {
 }
 
 /// Bir aracın seçenek değerleri ve türlerine göre okuma yardımcıları.
-struct OptionValues: Equatable {
+struct OptionValues: Equatable, Codable {
     var values: [String: OptionValue] = [:]
 
     init(_ values: [String: OptionValue] = [:]) {
