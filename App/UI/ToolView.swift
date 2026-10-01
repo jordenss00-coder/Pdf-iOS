@@ -64,6 +64,14 @@ struct ToolView: View {
                 }
             }
 
+            if case .pages(let mode) = tool.workspace, !files.isEmpty {
+                Section {
+                    PagesWorkspace(files: files, mode: mode, values: $values)
+                } header: {
+                    Text("Sayfalar")
+                }
+            }
+
             if !visibleOptions.isEmpty {
                 Section("Seçenekler") {
                     ForEach(visibleOptions) { option in

@@ -131,6 +131,9 @@ enum PDFiumImageEdit {
     }
 
     private static func luminance(_ r: UInt32, _ g: UInt32, _ b: UInt32) -> UInt32 {
-        UInt32((0.299 * Double(r) + 0.587 * Double(g) + 0.114 * Double(b)).rounded())
+        let red: Double = 0.299 * Double(r)
+        let green: Double = 0.587 * Double(g)
+        let blue: Double = 0.114 * Double(b)
+        return UInt32((red + green + blue).rounded())
     }
 }
