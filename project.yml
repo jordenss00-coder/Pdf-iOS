@@ -6,14 +6,17 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "1"
 targets:
   PDFAtolye:
     type: application
     platform: iOS
     sources:
-      - App
+      - path: App
+      - path: Vendor/PDFium-licenses
+        type: folder
+        buildPhase: resources
     dependencies:
       - framework: Vendor/PDFium.xcframework
         embed: true
@@ -29,14 +32,15 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_NSCameraUsageDescription: Belgeleri taramak için kamerayı kullanır.
     scheme:
       testTargets:
-        - PDFAtolyeSpikeTests
-  PDFAtolyeSpikeTests:
+        - PDFAtolyeTests
+  PDFAtolyeTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - Spike
+      - Tests
       - path: Fixtures
         buildPhase: resources
     dependencies:
@@ -45,7 +49,7 @@ targets:
         embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.jordenss00.pdfatolye.spiketests
+        PRODUCT_BUNDLE_IDENTIFIER: com.jordenss00.pdfatolye.tests
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/PDFAtolye.app/PDFAtolye
         BUNDLE_LOADER: $(TEST_HOST)

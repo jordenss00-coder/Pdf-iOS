@@ -10,16 +10,15 @@ concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  spike:
+  build-and-test:
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: |
           xcodebuild -version
           sw_vers
-          xcrun simctl list runtimes
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Fetch PDFium
@@ -33,47 +32,65 @@ jobs:
           xcodebuild build -project PDFAtolye.xcodeproj -scheme PDFAtolye -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO > build/device.log 2>&1
           status=$?
-          grep -E 'error:|warning: .*PDFium|\*\* BUILD' build/device.log
+          grep -E 'error:|\*\* BUILD' build/device.log | head -80
           exit $status
-      - name: Run spike tests on simulator
+      - name: Pick simulator
         run: |
-          set +e
           udid=$(xcrun simctl list devices available -j | python3 -c '
           import json, sys
-          best = None
+          found = []
           for runtime, devices in json.load(sys.stdin)["devices"].items():
               if "iOS-" not in runtime:
                   continue
               version = tuple(int(p) for p in runtime.rsplit("iOS-", 1)[1].split("-"))
               for device in devices:
-                  if device["name"].startswith("iPhone") and (best is None or version > best[0]):
-                      best = (version, device["udid"], device["name"])
+                  if device["name"].startswith("iPhone"):
+                      pro = "Pro" in device["name"] and "Max" not in device["name"]
+                      found.append(((version, pro), device["udid"], device["name"]))
+          found.sort()
+          best = found[-1]
           print(best[1])
-          print("Simulator:", best[2], ".".join(map(str, best[0])), file=sys.stderr)
+          print("Simulator:", best[2], file=sys.stderr)
           ')
-          xcodebuild test -project PDFAtolye.xcodeproj -scheme PDFAtolye -destination "id=$udid" \
-            -parallel-testing-enabled NO -test-timeouts-enabled YES \
-            -resultBundlePath build/Spike.xcresult > build/test.log 2>&1
+          echo "SIM=$udid" >> "$GITHUB_ENV"
+      - name: Run tests on simulator
+        run: |
+          set +e
+          xcodebuild test -project PDFAtolye.xcodeproj -scheme PDFAtolye -destination "id=$SIM" \
+            -derivedDataPath build/DerivedData -parallel-testing-enabled NO -test-timeouts-enabled YES \
+            -resultBundlePath build/Tests.xcresult > build/test.log 2>&1
           status=$?
-          grep -E '^SPIKE\||error:|Test Case .*(passed|failed)|\*\* TEST' build/test.log
+          grep -E 'error:|Test Case .*(passed|failed)|XCTAssert|\*\* TEST' build/test.log | head -150
           exit $status
-      - name: Spike report
+      - name: Screenshots
         if: always()
         run: |
-          grep -h '^SPIKE|' build/test.log > build/spike-report.txt || true
-          {
-            echo '## iOS teknik deneme'
-            echo
-            echo '| Deneme | Sonuç | Ayrıntı |'
-            echo '|---|---|---|'
-            awk -F'|' '{ detail = $4; for (i = 5; i <= NF; i++) detail = detail "/" $i; print "| " $2 " | " $3 " | " substr(detail, 1, 300) " |" }' build/spike-report.txt
-          } >> "$GITHUB_STEP_SUMMARY"
+          app=build/DerivedData/Build/Products/Debug-iphonesimulator/PDFAtolye.app
+          [ -d "$app" ] || exit 0
+          mkdir -p build/screens
+          xcrun simctl boot "$SIM" 2>/dev/null || true
+          xcrun simctl bootstatus "$SIM" -b
+          xcrun simctl status_bar "$SIM" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 || true
+          xcrun simctl install "$SIM" "$app"
+          shot() {
+            name=$1; shift
+            xcrun simctl terminate "$SIM" com.jordenss00.pdfatolye 2>/dev/null || true
+            xcrun simctl launch "$SIM" com.jordenss00.pdfatolye "$@" >/dev/null
+            sleep 5
+            xcrun simctl io "$SIM" screenshot "build/screens/$name.png" >/dev/null
+          }
+          shot 01-home
+          shot 02-watermark -demo watermark
+          shot 03-merge -demo merge
+          shot 04-split -demo split
+          xcrun simctl ui "$SIM" appearance dark
+          shot 05-home-dark
+          shot 06-compress-dark -demo compress
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ios-spike
+          name: ios-build
           path: |
             build/*.log
-            build/spike-report.txt
-            Vendor/PDFium-licenses
+            build/screens
           retention-days: 14
