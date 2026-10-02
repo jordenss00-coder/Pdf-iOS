@@ -127,7 +127,7 @@ struct OptionRow: View {
             HStack(spacing: 12) {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.secondary))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(choice.label).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                     if let detail = choice.detail {
@@ -138,9 +138,9 @@ struct OptionRow: View {
             }
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(selected ? Color.accentColor.opacity(0.12) : Color(.tertiarySystemGroupedBackground)))
+                .fill(selected ? AnyShapeStyle(TintShapeStyle().opacity(0.12)) : AnyShapeStyle(Color(.tertiarySystemGroupedBackground))))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 1.5))
+                .strokeBorder(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(Color.clear), lineWidth: 1.5))
         }
         .buttonStyle(.plain)
         .sensoryFeedback(.selection, trigger: selected)
@@ -233,7 +233,7 @@ struct PositionPicker: View {
                                 withAnimation(.snappy) { selection = value }
                             } label: {
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(selection == value ? Color.accentColor : Color(.tertiarySystemGroupedBackground))
+                                    .fill(selection == value ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(Color(.tertiarySystemGroupedBackground)))
                                     .frame(width: 34, height: 26)
                                     .overlay(Circle().fill(selection == value ? Color.white : Color.secondary).frame(width: 6, height: 6))
                             }
@@ -252,7 +252,7 @@ struct PositionPicker: View {
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .background(Capsule().fill(selection == "tile" ? Color.accentColor : Color(.tertiarySystemGroupedBackground)))
+                        .background(Capsule().fill(selection == "tile" ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(Color(.tertiarySystemGroupedBackground))))
                         .foregroundStyle(selection == "tile" ? Color.white : Color.primary)
                 }
                 .buttonStyle(.plain)
@@ -283,8 +283,8 @@ struct ChipFlow: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Capsule().fill(on ? Color.accentColor.opacity(0.15) : Color(.tertiarySystemGroupedBackground)))
-                        .foregroundStyle(on ? Color.accentColor : Color.primary)
+                        .background(Capsule().fill(on ? AnyShapeStyle(TintShapeStyle().opacity(0.15)) : AnyShapeStyle(Color(.tertiarySystemGroupedBackground))))
+                        .foregroundStyle(on ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.primary))
                 }
                 .buttonStyle(.plain)
             }

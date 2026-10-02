@@ -135,6 +135,7 @@ struct ToolView: View {
                 .listRowInsets(EdgeInsets())
             }
         }
+        .tint(tool.categoryInfo.colors.first)
         .safeAreaInset(edge: .bottom) { runBar }
         .navigationTitle(tool.name)
         .navigationBarTitleDisplayMode(.inline)

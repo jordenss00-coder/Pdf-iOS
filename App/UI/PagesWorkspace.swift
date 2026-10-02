@@ -129,14 +129,14 @@ struct PagesWorkspace: View {
                 PageThumbnail(document: item.blank ? nil : documents[item.file], page: item.page, extraRotation: item.rotate)
                     .frame(height: 124)
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(isSelected ? Color.accentColor : tint ?? Color.primary.opacity(0.1),
+                        .strokeBorder(isSelected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(tint ?? Color.primary.opacity(0.1)),
                                       lineWidth: isSelected ? 3 : tint == nil ? 1 : 2))
                     .opacity(dragging?.id == item.id ? 0.4 : dimmed ? 0.35 : 1)
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.title3)
                         .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, Color.accentColor)
+                        .foregroundStyle(Color.white, TintShapeStyle())
                         .padding(6)
                         .transition(.scale.combined(with: .opacity))
                 }
@@ -144,7 +144,7 @@ struct PagesWorkspace: View {
                     Image(systemName: "scissors.circle.fill")
                         .font(.title3)
                         .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, tint ?? Color.accentColor)
+                        .foregroundStyle(Color.white, tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(TintShapeStyle()))
                         .padding(6)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .transition(.scale.combined(with: .opacity))
