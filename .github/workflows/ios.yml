@@ -64,7 +64,9 @@ jobs:
           exit $status
       - name: Screenshots
         if: always()
-        timeout-minutes: 6
+        # Yalnızca görsel kontrol içindir; yavaş simülatör derlemeyi düşürmesin.
+        continue-on-error: true
+        timeout-minutes: 12
         run: |
           app=build/DerivedData/Build/Products/Debug-iphonesimulator/PDFAtolye.app
           [ -d "$app" ] || exit 0
