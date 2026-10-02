@@ -38,9 +38,9 @@ struct HomeView: View {
                 NavigationLink {
                     AboutView()
                 } label: {
-                    Image(systemName: "info.circle")
+                    Image(systemName: "gearshape")
                 }
-                .accessibilityLabel("Hakkında ve gizlilik")
+                .accessibilityLabel("Ayarlar ve gizlilik")
             }
         }
         .quickLookPreview($preview, in: model.recents)

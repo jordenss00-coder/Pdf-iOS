@@ -5,7 +5,8 @@ import UIKit
 import FoundationModels
 #endif
 
-/// Cihaz üstü yapay zekâ (Apple Intelligence). Belge cihazdan çıkmaz.
+/// Cihaz üstü yapay zekâ (Apple Intelligence); belge cihazdan çıkmaz. Kullanılamadığında ve kullanıcı
+/// kendi Claude API anahtarını eklediyse, masaüstündeki gibi Claude ile çalışır.
 enum AITools {
     static let lengths = [
         "short": "5-7 maddelik kısa bir özet",
@@ -15,6 +16,17 @@ enum AITools {
 
     /// Modelle tek bir istem; her çağrı yeni oturumda (bağlam penceresi taşmasın).
     static func ask(_ prompt: String, instructions: String) async throws -> String {
+        do {
+            return try await onDevice(prompt, instructions: instructions)
+        } catch let error as ToolError {
+            guard ClaudeClient.isConfigured else {
+                throw ToolError(error.message + " Ayarlar'dan kendi Claude API anahtarını ekleyerek de kullanabilirsin.")
+            }
+            return try await ClaudeClient.ask(prompt, instructions: instructions)
+        }
+    }
+
+    private static func onDevice(_ prompt: String, instructions: String) async throws -> String {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
             if case .unavailable(let reason) = SystemLanguageModel.default.availability {

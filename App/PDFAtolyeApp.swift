@@ -20,6 +20,7 @@ struct PDFAtolyeApp: App {
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @AppStorage("appearance") private var appearance = "system"
 
     var body: some View {
         NavigationStack(path: $model.path) {
@@ -36,6 +37,7 @@ struct RootView: View {
                 }
         }
         .tint(Brand.tint)
+        .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         .sheet(isPresented: $model.showIncoming) {
             IncomingSheet()
         }

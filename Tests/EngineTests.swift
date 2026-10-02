@@ -638,6 +638,15 @@ final class EngineTests: XCTestCase {
         XCTAssertFalse(rewritten.contains("Yılmaz"), rewritten)
     }
 
+    func testClaudeResponseParsing() throws {
+        let ok = Data(#"{"content":[{"type":"text","text":"Merhaba"},{"type":"text","text":" dünya"}],"stop_reason":"end_turn"}"#.utf8)
+        XCTAssertEqual(try ClaudeClient.text(from: ok, status: 200), "Merhaba dünya")
+        let bad = Data(#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#.utf8)
+        XCTAssertThrowsError(try ClaudeClient.text(from: bad, status: 401)) { error in
+            XCTAssertTrue((error as? ToolError)?.message.contains("geçersiz") == true)
+        }
+    }
+
     // MARK: ZIP
 
     func testZipArchive() throws {

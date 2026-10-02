@@ -1,9 +1,16 @@
 import SwiftUI
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 struct AboutView: View {
     @EnvironmentObject private var model: AppModel
+    @AppStorage("appearance") private var appearance = "system"
     @State private var confirming = false
     @State private var cleared = false
+    @State private var apiKey = ""
+    @State private var keyHint = APIKeyStore.hint
+    @State private var claudeModel = ClaudeClient.model
 
     private var version: String {
         let info = Bundle.main.infoDictionary
@@ -31,8 +38,46 @@ struct AboutView: View {
                 }
                 .padding(.vertical, 6)
             }
+            Section("Görünüm") {
+                Picker("Tema", selection: $appearance) {
+                    Text("Sistem").tag("system")
+                    Text("Açık").tag("light")
+                    Text("Koyu").tag("dark")
+                }
+                .pickerStyle(.segmented)
+            }
+            Section {
+                Label(onDeviceAI ? "Apple Intelligence bu cihazda hazır." : "Apple Intelligence bu cihazda kullanılamıyor.",
+                      systemImage: onDeviceAI ? "sparkles" : "exclamationmark.triangle")
+                if let keyHint {
+                    LabeledContent("Claude API anahtarı", value: keyHint)
+                    TextField("Model", text: $claudeModel)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onSubmit { ClaudeClient.model = claudeModel }
+                    Button("Anahtarı sil", role: .destructive) {
+                        APIKeyStore.delete()
+                        self.keyHint = nil
+                    }
+                } else {
+                    SecureField("Claude API anahtarı (sk-ant-…)", text: $apiKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button("Anahtarı kaydet") {
+                        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !key.isEmpty, APIKeyStore.save(key) else { return }
+                        apiKey = ""
+                        keyHint = APIKeyStore.hint
+                    }
+                    .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            } header: {
+                Text("Yapay zekâ")
+            } footer: {
+                Text("Özetleme ve çeviri önce cihazdaki Apple Intelligence ile yapılır. Kullanılamıyorsa ve kendi Anthropic API anahtarını eklediysen belge metni Claude'a gönderilir. Anahtar yalnızca bu cihazın anahtar zincirinde saklanır.")
+            }
             Section("Gizlilik") {
-                Label("Belgeler yalnızca bu cihazda işlenir; hiçbir sunucuya gönderilmez.", systemImage: "lock.shield")
+                Label("Belgeler bu cihazda işlenir; yalnızca Claude anahtarı eklediysen yapay zekâ araçları metni Anthropic'e gönderir.", systemImage: "lock.shield")
                 Label("Hesap, giriş ya da internet bağlantısı gerekmez.", systemImage: "wifi.slash")
                 Label("Sonuçlar Dosyalar › iPhone'umda › PDF Atölye klasöründe durur; istediğin zaman silebilirsin.", systemImage: "folder")
                 Button(role: .destructive) {
@@ -66,8 +111,18 @@ struct AboutView: View {
                 }
             }
         }
-        .navigationTitle("Hakkında")
+        .navigationTitle("Ayarlar")
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear { ClaudeClient.model = claudeModel }
+    }
+
+    private var onDeviceAI: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            if case .available = SystemLanguageModel.default.availability { return true }
+        }
+        #endif
+        return false
     }
 }
 
